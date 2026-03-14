@@ -1,52 +1,13 @@
-# Lawnchair development roadmap
+# ARIA Roadmap
 
-This document outlines our high-level strategic priorities. It's a living document, not a set of
-unbreakable promises. For the status of individual tasks, see
-our [GitHub Issue Tracker](https://github.com/LawnchairLauncher/lawnchair/issues) and our
-team's [Kanban board](https://github.com/orgs/LawnchairLauncher/projects/9/views/1).
+For the full build plan and session milestones, see [docs/ARIA_PLAN.md](docs/ARIA_PLAN.md).
 
-## Vision
-
-Lawnchair's goal is to be:
-
-* **Simple:** Match the core Pixel Launcher experience.
-* **Powerful:** Offer deep, meaningful customization.
-* **Stable:** Provide a rock-solid, reliable foundation.
-
-## Roadmap
-
-### Recently completed
-
-- **Shipped:** `15 Beta 1` to GitHub & Play Store.
-- **Completed:** A full architectural overhaul of the Search and Permissions systems.
-
-### Current focus
-
-This is our active development sprint. The goal is to address key bugs and deliver a highly polished
-user experience.
-
-- UI/UX overhaul of all Settings screens to Material 3 Expressive.
-
-### Up next
-
-Once the UX overhaul is stable, our focus will shift to delivering highly-requested features that
-enhance
-customization and control.
-
-- Proper icon swipe gestures
-- Folder "cover" mode
-- App drawer tabs
-
-### The Android 16 rebase
-
-This is the massive, foundational undertaking to migrate our codebase to the latest Android 16
-(AOSP) source. Its completion will be the foundation for our **Lawnchair 16** release.
-
-**Status:** Actively in progress, led by a core community contributor.
-
-### Long term or blocked
-
-Highly-requested features that are blocked by external dependencies or require significant research.
-
-- **Widget Stacking:** A highly complex feature requiring deep architectural investigation.
-- **QuickSwitch Stability:** An ongoing effort to mitigate upstream AOSP/OEM bugs.
+| Session | Focus | Status |
+|---------|-------|--------|
+| 1-4 | Data pipeline, prediction engine, context signals | Done |
+| 5 | Compose home screen with predicted apps | Done |
+| 6 | LLM providers, skill data model, debug UI | Done |
+| 7 | Notification listener, first built-in skills | Next |
+| 8 | Proactive card feed home screen | Planned |
+| 9 | Chat sheet, native tool calling, agent actions | Planned |
+| 10 | Onboarding, QR token pairing, permissions flow | Planned |
