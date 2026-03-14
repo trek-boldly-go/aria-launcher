@@ -11,8 +11,12 @@ sealed class SmartspaceMode(
     @StringRes val nameResourceId: Int,
     @LayoutRes val layoutResourceId: Int,
 ) {
+    /** Number of workspace cell rows this mode occupies. */
+    open val cellRowSpan: Int = 1
+
     companion object {
         fun fromString(value: String): SmartspaceMode = when (value) {
+            "aria" -> AriaSmartspace
             "google" -> GoogleSmartspace
             "google_search" -> GoogleSearchSmartspace
             "smartspacer" -> Smartspacer
@@ -23,6 +27,7 @@ sealed class SmartspaceMode(
          * @return The list of all smartspace options
          */
         fun values() = listOf(
+            AriaSmartspace,
             LawnchairSmartspace,
             GoogleSmartspace,
             GoogleSearchSmartspace,
@@ -70,4 +75,13 @@ object Smartspacer : SmartspaceMode(
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             context.packageManager.isPackageInstalledAndEnabled("com.kieronquinn.app.smartspacer")
     }
+}
+
+object AriaSmartspace : SmartspaceMode(
+    nameResourceId = R.string.smartspace_mode_aria,
+    layoutResourceId = R.layout.aria_smartspace,
+) {
+    override val cellRowSpan: Int = 2
+    override fun toString(): String = "aria"
+    override fun isAvailable(context: Context): Boolean = true
 }

@@ -101,6 +101,9 @@
     <!-- View tag key used to store SpringAnimation data. -->
     <item type="id" name="spring_animation_tag" />
 
+    <!-- ARIA predicted apps panel on first workspace page -->
+    <item type="id" name="aria_predicted_panel" />
+
     <!-- LC: Fix build issues -->
     <item type="id" name="left_indicator_arrow"/>
     <item type="id" name="right_indicator_arrow"/>

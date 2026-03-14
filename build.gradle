@@ -17,6 +17,7 @@ plugins {
     alias(libs.plugins.cash.licensee)
     alias(libs.plugins.rikka.refine)
     alias(libs.plugins.diffplug.spotless)
+    alias(libs.plugins.dagger.hilt.android.plugin)
 }
 
 allprojects {
@@ -180,6 +181,7 @@ android {
         resValues true
     }
 
+    packagingOptions.jniLibs.useLegacyPackaging = true
     packagingOptions.resources.excludes += [
         "**/*.proto",
         "**/*.bin",
@@ -277,17 +279,17 @@ android {
         }
 
         github {
-            applicationId 'app.lawnchair'
+            applicationId 'com.aria.launcher'
             dimension "channel"
         }
 
         nightly {
-            applicationId 'app.lawnchair.nightly'
+            applicationId 'com.aria.launcher.nightly'
             dimension "channel"
         }
 
         play {
-            applicationId "app.lawnchair.play"
+            applicationId "com.aria.launcher.play"
             dimension "channel"
             isDefault true
         }
@@ -484,6 +486,13 @@ dependencies {
     implementation libs.dagger.hilt.android
     ksp libs.dagger.hilt.compiler
 
+    // ARIA dependencies
+    implementation libs.androidx.work.runtime
+    implementation libs.androidx.hilt.work
+    ksp libs.androidx.hilt.compiler
+    implementation libs.play.services.location
+    implementation libs.okhttp.sse
+
     implementation libs.google.guava
 
     debugImplementation libs.leakcanary.android
@@ -518,11 +527,13 @@ licensee {
     allow(SpdxId.Apache_20)
     allow(SpdxId.BSD_3_Clause)
     allow(SpdxId.GPL_20_or_later)
+    allow(SpdxId.MIT)
     allowDependency(libs.libsu.core)
     allowDependency(libs.libsu.service)
     allowUrl("https://github.com/patrykmichalik/opto/blob/master/LICENSE")
     allowUrl("https://github.com/RikkaApps/HiddenApiRefinePlugin/blob/main/LICENSE")
     allowUrl("https://opensource.org/licenses/mit-license.php")
+    allowUrl("https://developer.android.com/studio/terms.html")
 
     bundleAndroidAsset = true
     androidAssetReportPath = 'licenses.json'

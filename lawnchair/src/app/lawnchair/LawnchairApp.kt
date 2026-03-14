@@ -19,6 +19,13 @@ package app.lawnchair
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.Application
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
+import com.aria.launcher.aria.data.ContextSignalManager
+import com.aria.launcher.aria.scheduler.NightlyPredictionWorker
+import com.aria.launcher.aria.scheduler.UsageCollectionWorker
+import dagger.hilt.android.HiltAndroidApp
+import javax.inject.Inject
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -56,7 +63,15 @@ import com.android.quickstep.RecentsActivity
 import com.android.systemui.shared.system.QuickStepContract
 import java.io.File
 
-class LawnchairApp : Application() {
+@HiltAndroidApp
+class LawnchairApp : Application(), Configuration.Provider {
+
+    @Inject lateinit var contextSignalManager: ContextSignalManager
+    @Inject lateinit var workerFactory: HiltWorkerFactory
+
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
+
     private val compatible = Build.VERSION.SDK_INT in BuildConfig.QUICKSTEP_MIN_SDK..BuildConfig.QUICKSTEP_MAX_SDK
     private val isRecentsComponent: Boolean by unsafeLazy { checkRecentsComponent() }
     private val recentsEnabled: Boolean get() = compatible && isRecentsComponent
@@ -69,6 +84,12 @@ class LawnchairApp : Application() {
         instance = this
         QuickStepContract.sRecentsDisabled = !recentsEnabled
         Flowerpot.Manager.getInstance(this)
+
+        // ARIA: seed context signals and start periodic collection + nightly prediction
+        contextSignalManager.init()
+        UsageCollectionWorker.schedule(this)
+        UsageCollectionWorker.runOnce(this) // DEBUG: immediate first collection
+        NightlyPredictionWorker.schedule(this)
     }
 
     fun hideClockInStatusBar() {

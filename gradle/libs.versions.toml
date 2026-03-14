@@ -10,6 +10,8 @@ opto = "1.0.18"
 protobuf = "4.34.0"
 retrofit = "3.0.0"
 dagger = "2.59.2"
+androidx-work = "2.10.0"
+play-services-location = "21.3.0"
 libsu = "6.0.0"
 refine = "4.4.0"
 
@@ -35,6 +37,7 @@ google-protobuf = "com.google.protobuf:0.9.6"
 cash-licensee = "app.cash.licensee:1.14.1"
 rikka-refine = { id = "dev.rikka.tools.refine", version.ref = "refine" }
 diffplug-spotless = "com.diffplug.spotless:8.3.0"
+dagger-hilt-android-plugin = { id = "com.google.dagger.hilt.android", version.ref = "dagger" }
 
 [libraries]
 # AndroidX
@@ -88,6 +91,12 @@ dagger-android-processor = { group = "com.google.dagger", name = "dagger-android
 dagger-hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "dagger" }
 dagger-hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "dagger" }
 
+# ARIA dependencies
+androidx-work-runtime = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "androidx-work" }
+androidx-hilt-work = "androidx.hilt:hilt-work:1.2.0"
+androidx-hilt-compiler = "androidx.hilt:hilt-compiler:1.2.0"
+play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "play-services-location" }
+
 # Accompanist
 accompanist-adaptive = { group = "com.google.accompanist", name = "accompanist-adaptive", version.ref = "accompanist" }
 accompanist-drawablepainter = { group = "com.google.accompanist", name = "accompanist-drawablepainter", version.ref = "accompanist" }
@@ -102,6 +111,7 @@ opto-domain = { group = "com.patrykmichalik.opto", name = "domain", version.ref 
 retrofit-core = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
 retrofit-converter-kotlinx = { group = "com.squareup.retrofit2", name = "converter-kotlinx-serialization", version.ref = "retrofit" }
 okhttp = "com.squareup.okhttp3:okhttp:5.3.2"
+okhttp-sse = "com.squareup.okhttp3:okhttp-sse:5.3.2"
 
 # Room
 room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "androidx-room" }

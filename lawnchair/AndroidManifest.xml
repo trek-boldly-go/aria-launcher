@@ -38,6 +38,12 @@
     <uses-permission android:name="android.permission.STATUS_BAR_SERVICE" tools:ignore="ProtectedPermissions"/>
     <uses-permission android:name="android.permission.SUSPEND_APPS" tools:ignore="ProtectedPermissions" />
 
+    <!-- ARIA context signal permissions -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+
     <!--override minSdk declared in it-->
     <uses-sdk tools:overrideLibrary="com.kieronquinn.app.smartspacer.sdk" />
 
@@ -55,6 +61,21 @@
         <meta-data
             android:name="preloaded_fonts"
             android:resource="@array/preloaded_fonts" />
+
+        <!-- ARIA receivers -->
+        <receiver android:name="com.aria.launcher.aria.data.ChargingReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
+                <action android:name="android.intent.action.ACTION_POWER_DISCONNECTED" />
+            </intent-filter>
+        </receiver>
+        <receiver android:name="com.aria.launcher.aria.data.ActivityUpdateReceiver" android:exported="false" />
+
+        <activity
+            android:name="com.aria.launcher.aria.ui.AriaOnboardingActivity"
+            android:theme="@style/Theme.Lawnchair"
+            android:exported="false"
+            android:enableOnBackInvokedCallback="true" />
 
         <activity
             android:name="app.lawnchair.ui.preferences.PreferenceActivity"

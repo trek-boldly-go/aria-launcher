@@ -208,7 +208,8 @@ public class ShortcutAndWidgetContainer extends ViewGroup implements FolderIcon.
     }
 
     private boolean isChildQsb(View child) {
-        return child.getId() == R.id.search_container_workspace;
+        int id = child.getId();
+        return id == R.id.search_container_workspace || id == R.id.aria_predicted_panel;
     }
 
     public boolean invertLayoutHorizontally() {

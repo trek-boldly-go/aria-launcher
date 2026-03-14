@@ -78,6 +78,7 @@ import com.android.launcher3.views.OptionsPopupView
 import com.android.launcher3.views.OptionsPopupView.OptionItem
 import com.android.launcher3.widget.LauncherWidgetHolder
 import com.android.launcher3.widget.RoundedCornerEnforcement
+import com.aria.launcher.aria.ui.AriaOnboardingActivity
 import com.android.systemui.plugins.shared.LauncherOverlayManager
 import com.android.systemui.shared.system.QuickStepContract
 import com.kieronquinn.app.smartspacer.sdk.client.SmartspacerClient
@@ -241,6 +242,11 @@ class LawnchairLauncher : QuickstepLauncher() {
         colorScheme = themeProvider.colorScheme
 
         showQuickstepWarningIfNecessary()
+
+        // ARIA: Show onboarding on first launch to request permissions
+        if (!AriaOnboardingActivity.isOnboardingComplete(this)) {
+            AriaOnboardingActivity.launch(this)
+        }
 
         reloadIconsIfNeeded()
 

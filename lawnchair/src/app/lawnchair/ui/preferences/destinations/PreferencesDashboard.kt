@@ -57,6 +57,7 @@ import app.lawnchair.ui.preferences.components.layout.PreferenceLayout
 import app.lawnchair.ui.preferences.components.layout.PreferenceTemplate
 import app.lawnchair.ui.preferences.data.liveinfo.SyncLiveInformation
 import app.lawnchair.ui.preferences.navigation.About
+import app.lawnchair.ui.preferences.navigation.AriaDebug
 import app.lawnchair.ui.preferences.navigation.AppDrawer
 import app.lawnchair.ui.preferences.navigation.BackupAndRestore
 import app.lawnchair.ui.preferences.navigation.CreateBackup
@@ -237,6 +238,18 @@ fun PreferencesDashboard(
                     iconResource = R.drawable.backup_restore,
                     onNavigate = { onNavigate(BackupAndRestore) },
                     isSelected = currentRoute is BackupAndRestore,
+                    isFirst = it.isFirst,
+                    isLast = it.isLast,
+                )
+            }
+
+            Item {
+                PreferenceCategory(
+                    label = "ARIA Debug",
+                    description = "Prediction engine and data tools",
+                    iconResource = R.drawable.ic_smartspace,
+                    onNavigate = { onNavigate(AriaDebug) },
+                    isSelected = currentRoute is AriaDebug,
                     isFirst = it.isFirst,
                     isLast = it.isLast,
                 )
