@@ -1,6 +1,7 @@
 package com.aria.launcher.aria.engine
 
 import android.app.usage.UsageEvents
+import android.util.Log
 import com.aria.launcher.aria.data.AppPrediction
 import com.aria.launcher.aria.data.AppUsageEvent
 import com.aria.launcher.aria.data.CalendarEventProvider
@@ -37,7 +38,11 @@ class PredictionEngine @Inject constructor(
         windowDays: Int = 30,
     ) {
         val events = repository.getEventsForTraining(windowDays)
-        if (events.isEmpty()) return
+        if (events.isEmpty()) {
+            Log.d(TAG, "No training events found in last $windowDays days")
+            return
+        }
+        Log.d(TAG, "generatePredictions: ${events.size} training events over $windowDays days")
 
         // 1. Group foreground events by context key + package
         val foregroundEvents = events.filter { it.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND }
@@ -64,7 +69,7 @@ class PredictionEngine @Inject constructor(
         val predictions = mutableListOf<AppPrediction>()
 
         for ((contextKey, packageCounts) in contextCounts) {
-            val maxCount = packageCounts.values.max()
+            val maxCount = packageCounts.values.maxOrNull() ?: continue
             if (maxCount == 0) continue
 
             for ((pkg, count) in packageCounts) {
@@ -85,6 +90,7 @@ class PredictionEngine @Inject constructor(
         boostMeetingApps(predictions)
 
         // 4. Write to database
+        Log.d(TAG, "Generated ${predictions.size} predictions across ${contextCounts.size} context buckets")
         if (predictions.isNotEmpty()) {
             repository.savePredictions(predictions)
         }
@@ -100,16 +106,16 @@ class PredictionEngine @Inject constructor(
         if (!calendarEventProvider.hasUpcomingEvent(windowMinutes = 30)) return
 
         val now = System.currentTimeMillis()
+        val boosts = mutableListOf<AppPrediction>()
+
         for (pkg in MEETING_PACKAGES) {
-            val existing = predictions.find { it.packageName == pkg }
-            if (existing != null) {
-                // Boost to at least 0.9
-                val boosted = existing.copy(score = maxOf(existing.score, MEETING_BOOST_SCORE))
-                predictions.remove(existing)
-                predictions += boosted
+            val existingIndex = predictions.indexOfFirst { it.packageName == pkg }
+            if (existingIndex >= 0) {
+                val existing = predictions[existingIndex]
+                predictions[existingIndex] = existing.copy(score = maxOf(existing.score, MEETING_BOOST_SCORE))
             } else {
                 // Inject a meeting app even if it hasn't been used in this context before
-                predictions += AppPrediction(
+                boosts += AppPrediction(
                     packageName = pkg,
                     score = MEETING_BOOST_SCORE,
                     lastUpdated = now,
@@ -117,9 +123,12 @@ class PredictionEngine @Inject constructor(
                 )
             }
         }
+
+        predictions += boosts
     }
 
     companion object {
+        private const val TAG = "ARIA.PredictionEngine"
         private const val MIN_SCORE_THRESHOLD = 0.05f
         private const val MEETING_BOOST_SCORE = 0.9f
 

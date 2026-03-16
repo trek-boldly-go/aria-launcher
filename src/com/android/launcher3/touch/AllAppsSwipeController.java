@@ -40,6 +40,7 @@ import android.view.animation.Interpolator;
 import com.android.app.animation.Interpolators;
 import com.android.launcher3.AbstractFloatingView;
 import com.android.launcher3.Flags;
+import com.android.launcher3.Hotseat;
 import com.android.launcher3.Launcher;
 import com.android.launcher3.LauncherState;
 import com.android.launcher3.states.StateAnimationConfig;
@@ -157,6 +158,13 @@ public class AllAppsSwipeController extends AbstractStateChangeTouchController {
         }
         if (mLauncher.isInState(ALL_APPS) && !mLauncher.getAppsView().shouldContainerScroll(ev)) {
             return false;
+        }
+        // Only allow swipe-to-open from hotseat area
+        if (mLauncher.isInState(NORMAL)) {
+            Hotseat hotseat = mLauncher.getHotseat();
+            if (hotseat != null && ev.getY() < hotseat.getTop()) {
+                return false;
+            }
         }
         return true;
     }

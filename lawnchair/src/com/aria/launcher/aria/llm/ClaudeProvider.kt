@@ -58,10 +58,8 @@ class ClaudeProvider(
             val response = client.newCall(request).await()
             val responseBody = response.body?.string() ?: return@withContext LlmResult.Error("Empty response")
             if (!response.isSuccessful) {
-                if (response.code == 401 && isOAuthToken && refreshToken != null) {
-                    val refreshed = refreshOAuthToken()
-                    if (refreshed) return@withContext complete(systemPrompt, messages, maxTokens)
-                }
+                Log.e(TAG, "API error ${response.code}: $responseBody")
+                Log.e(TAG, "Token prefix: ${currentToken.take(15)}..., isOAuth=$isOAuthToken")
                 return@withContext LlmResult.Error("HTTP ${response.code}: $responseBody")
             }
             parseResponse(responseBody)
@@ -140,8 +138,13 @@ class ClaudeProvider(
 
             putJsonArray("messages") {
                 for (msg in messages) {
+                    val role = when (msg.role) {
+                        Role.ASSISTANT -> "assistant"
+                        Role.TOOL -> "user" // Tool results sent as user messages in Claude API
+                        else -> "user"
+                    }
                     add(buildJsonObject {
-                        put("role", if (msg.role == Role.ASSISTANT) "assistant" else "user")
+                        put("role", role)
                         put("content", msg.content)
                     })
                 }
@@ -173,12 +176,7 @@ class ClaudeProvider(
             .post(body.toRequestBody(JSON_MEDIA_TYPE))
             .header("anthropic-version", API_VERSION)
             .header("content-type", "application/json")
-
-        if (isOAuthToken) {
-            builder.header("Authorization", "Bearer $currentToken")
-        } else {
-            builder.header("x-api-key", currentToken)
-        }
+            .header("x-api-key", currentToken)
 
         return builder.build()
     }
@@ -237,6 +235,7 @@ class ClaudeProvider(
             val newRefresh = parsed["refresh_token"]?.jsonPrimitive?.contentOrNull
             currentToken = newToken
             onTokenRefreshed?.invoke(newToken, newRefresh)
+            Log.d(TAG, "OAuth token refreshed successfully")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Token refresh failed", e)

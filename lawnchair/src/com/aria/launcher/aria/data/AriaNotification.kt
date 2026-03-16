@@ -1,0 +1,14 @@
+// Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
+package com.aria.launcher.aria.data
+
+data class AriaNotification(
+    val packageName: String,
+    val key: String,
+    val title: String?,
+    val text: String?,
+    val subText: String?,
+    val postedTime: Long,
+    val actions: List<String>,
+    val isOngoing: Boolean,
+    val category: String?,
+)

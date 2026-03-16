@@ -1,0 +1,13 @@
+{
+  "name": "aria-token-qr",
+  "version": "1.0.0",
+  "description": "Generate a QR code to transfer Claude Code OAuth credentials to ARIA Launcher",
+  "main": "index.js",
+  "bin": {
+    "aria-token-qr": "index.js"
+  },
+  "dependencies": {
+    "qrcode-terminal": "^0.12.0"
+  },
+  "license": "SEE LICENSE IN ../../LICENSE-ARIA.md"
+}

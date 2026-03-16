@@ -78,8 +78,13 @@ import com.android.launcher3.views.OptionsPopupView
 import com.android.launcher3.views.OptionsPopupView.OptionItem
 import com.android.launcher3.widget.LauncherWidgetHolder
 import com.android.launcher3.widget.RoundedCornerEnforcement
-import com.aria.launcher.aria.ui.AriaOnboardingActivity
+import com.aria.launcher.aria.ui.AriaHomeState
+import com.aria.launcher.aria.ui.onboarding.AriaOnboardingActivity
 import com.android.systemui.plugins.shared.LauncherOverlayManager
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import com.android.systemui.shared.system.QuickStepContract
 import com.kieronquinn.app.smartspacer.sdk.client.SmartspacerClient
 import com.patrykmichalik.opto.core.firstBlocking
@@ -92,6 +97,13 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 class LawnchairLauncher : QuickstepLauncher() {
+
+    @EntryPoint
+    @InstallIn(SingletonComponent::class)
+    interface AriaLauncherEntryPoint {
+        fun ariaHomeState(): AriaHomeState
+    }
+
     private val defaultOverlay by unsafeLazy { OverlayCallbackImpl(this) }
     private val prefs by unsafeLazy { PreferenceManager.getInstance(this) }
     private val preferenceManager2 by unsafeLazy { PreferenceManager2.getInstance(this) }
@@ -444,6 +456,17 @@ class LawnchairLauncher : QuickstepLauncher() {
     override fun onResume() {
         super.onResume()
         restartIfPending()
+
+        // ARIA: Refresh context key so greeting/predictions update on every resume
+        try {
+            val entryPoint = EntryPointAccessors.fromApplication(
+                applicationContext,
+                AriaLauncherEntryPoint::class.java,
+            )
+            entryPoint.ariaHomeState().refreshContext()
+        } catch (_: Exception) {
+            // Non-fatal — Hilt might not be ready during early startup
+        }
 
         dragLayer.viewTreeObserver.addOnDrawListener(
             object : ViewTreeObserver.OnDrawListener {

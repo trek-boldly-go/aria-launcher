@@ -9,6 +9,8 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import android.util.Log
+import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.engine.PredictionEngine
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -31,6 +33,7 @@ class NightlyPredictionWorker @AssistedInject constructor(
     @Assisted private val appContext: Context,
     @Assisted params: WorkerParameters,
     private val predictionEngine: PredictionEngine,
+    private val ariaPreferences: AriaPreferences,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -38,13 +41,12 @@ class NightlyPredictionWorker @AssistedInject constructor(
         // so we never burn CPU during active evening use on the charger
         val pm = appContext.getSystemService(Context.POWER_SERVICE) as PowerManager
         if (pm.isInteractive) {
-            // Screen is on — skip and retry next cycle
+            Log.d(TAG, "Screen is on, deferring nightly prediction to next cycle")
             return Result.retry()
         }
 
-        // TODO: read home/work WiFi SSIDs from user preferences (SharedPreferences / DataStore)
-        val homeWifiSsid: String? = null
-        val workWifiSsid: String? = null
+        val homeWifiSsid: String? = ariaPreferences.getHomeWifiSsid()
+        val workWifiSsid: String? = ariaPreferences.getWorkWifiSsid()
 
         return try {
             predictionEngine.generatePredictions(
@@ -53,11 +55,13 @@ class NightlyPredictionWorker @AssistedInject constructor(
             )
             Result.success()
         } catch (e: Exception) {
+            Log.e(TAG, "NightlyPredictionWorker failed (attempt $runAttemptCount)", e)
             if (runAttemptCount < 2) Result.retry() else Result.failure()
         }
     }
 
     companion object {
+        private const val TAG = "ARIA.NightlyPrediction"
         private const val WORK_NAME = "aria_nightly_prediction"
 
         fun schedule(context: Context) {

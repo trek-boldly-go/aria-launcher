@@ -11,8 +11,9 @@ import androidx.room.RoomDatabase
         AppPrediction::class,
         AppSkill::class,
         SkillResult::class,
+        UserMemory::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class AriaDatabase : RoomDatabase() {
@@ -20,6 +21,7 @@ abstract class AriaDatabase : RoomDatabase() {
     abstract fun appUsageEventDao(): AppUsageEventDao
     abstract fun appPredictionDao(): AppPredictionDao
     abstract fun skillDao(): SkillDao
+    abstract fun userMemoryDao(): UserMemoryDao
 
     companion object {
         private const val DATABASE_NAME = "aria_db"

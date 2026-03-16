@@ -256,26 +256,50 @@ data class ContextKey(val dayType: DayType, val timeBucket: TimeBucket, val loca
 ### AriaNotificationListener
 - `NotificationListenerService` to read active notifications
 - Key insight: apps already push their most important state as notifications; ARIA can read, summarize, and surface them as cards without any app-specific integration
+- Companion object holds in-memory list of active notifications (no binding required)
+- Filters out system noise: GMS, system UI, low-priority ongoing
 
 ### Built-in Skill Pack
 
-| App | Skill | Source | Card Shows |
-|-----|-------|--------|------------|
-| Gmail | Inbox summary | Notification listener | Unread count + top 3 subjects |
-| Calendar | Next event | ContentProvider | Event name, time, join link |
-| Spotify | Now playing | Notification listener | Track, artist, resume button |
-| Maps | Commute ETA | Intent + API | Time, route, traffic |
-| Messaging | Unread summary | Notification listener | Count + recent contacts |
-| Weather | Forecast | Widget data / API | Today's conditions |
+| App | Skill ID | Source | Card Shows |
+|-----|----------|--------|------------|
+| Gmail | `gmail.inbox_summary` | Notification listener | Unread count + top 3 subject lines |
+| Calendar | `calendar.next_event` | ContentProvider | Next event in 2 hours |
+| Calendar | `calendar.tomorrow` | ContentProvider | Tomorrow's schedule |
+| Spotify | `spotify.now_playing` | Media notification | Track, artist |
+| Messaging | `messages.unread` | Notification listener | Count + sender names |
 
-### SkillOrchestrator
-- Matches skills to current context
-- Manages result freshness and caching
-- Triggers re-execution when results expire
+### Architecture
+
+**New files** (all under `aria/`):
+- `data/AriaNotification.kt` — data holder: package, title, text, posted time, actions
+- `data/AriaNotificationListener.kt` — `NotificationListenerService` with companion object
+- `engine/SkillExecutor.kt` — `SkillExecutor` interface + `SkillExecutorRegistry` (maps skill IDs → executors)
+- `engine/skills/NotificationSkillExecutor.kt` — gmail, messages, spotify skills
+- `engine/skills/CalendarSkillExecutor.kt` — calendar skills (uses existing `CalendarEventProvider`)
+- `engine/SkillOrchestrator.kt` — the brain: context matching, freshness checks, execution, `Flow<List<SkillResult>>`
+- `engine/SkillModule.kt` — Hilt wiring for executors + orchestrator
+
+**Modified files:**
+- `AndroidManifest.xml` — `<service>` for `AriaNotificationListener` with `BIND_NOTIFICATION_LISTENER_SERVICE`
+- `AriaHomeState.kt` — inject `SkillOrchestrator`, call on refresh, expose `skillResults` StateFlow
+- `AriaOnboardingActivity.kt` — notification listener permission row
+- `AriaDebugPreferences.kt` — listener status, "Execute skills" button, active results count
+
+### SkillOrchestrator Flow
+```
+refreshContext() called
+  → read enabled skills from DB
+  → filter by current context (time of day, etc.)
+  → skip skills with fresh cached results
+  → run stale/missing skills through SkillExecutorRegistry
+  → write SkillResult rows to DB
+  → emit updated results via Flow
+```
 
 ---
 
-## Phase 5 — Proactive Home Screen (Session 8)
+## Phase 5 — Proactive Home Screen Card Feed (Session 8)
 
 ### Layout
 ```
@@ -295,34 +319,98 @@ data class ContextKey(val dayType: DayType, val timeBucket: TimeBucket, val loca
 └─────────────────────────────────┘
 ```
 
+### Architecture
+
+**New files** (all under `aria/ui/`):
+- `composables/SkillCard.kt` — one card: app icon + title, body, action buttons (Open, Reply, Join)
+- `composables/CardFeed.kt` — scrollable card list, pull-to-refresh, predicted apps row at bottom, empty state
+- `composables/EmptyStateCard.kt` — "ARIA is learning your patterns. Cards will appear here."
+- `CardFeedState.kt` — watches skill results, loads app icons, optional LLM re-ranking, handles action taps
+
+**Modified files:**
+- `AriaSmartspaceContainer.kt` — replace `PredictedAppsRow` with `CardFeed`
+- `AriaPredictedPanel.kt` — same card feed integration
+- `SkillModels.kt` — add `parseActions()` helper (JSON → `List<SkillAction>`)
+- `AriaDebugPreferences.kt` — card count, force LLM re-ranking button
+
+### Features
 - Card feed replaces prediction grid as primary surface
-- LLM-powered card ranking and curation
-- Pull-to-refresh + auto-refresh on context change
+- LLM-powered card ranking and curation (when AI provider configured)
+- Pull-to-refresh triggers skill re-execution
 - Card types: info, action, summary
+- Empty state when no results exist
 
 ---
 
 ## Phase 6 — Chat + Agent Actions (Session 9)
 
-- Chat sheet UI (bottom sheet, streaming responses)
-- **Native tool calling** — define tools in API request; model responds with structured `tool_use` blocks
-- App launch + deep link execution from tool call results
-- Accessibility service for advanced agent tasks (tap buttons, navigate UIs)
+### Architecture
+
+**New files** (all under `aria/chat/`):
+- `ChatState.kt` — conversation manager: message list, `sendMessage()`, streaming, tool call loop (up to 5 rounds)
+- `ToolExecutor.kt` — translates AI tool calls → Android actions:
+  - `open_app` → launch app
+  - `search_web` → browser with search query
+  - `set_reminder` → create alarm/reminder
+  - `get_directions` → Maps navigation
+  - `compose_message` → SMS compose screen
+- `composables/ChatSheet.kt` — bottom sheet UI: title bar, message list, typing indicator, text input
+- `composables/ChatBubble.kt` — message bubble: user (right, colored), AI (left, neutral), tool results as chips
+- `ChatModule.kt` — Hilt wiring
+
+**Modified files:**
+- `AriaSmartspaceContainer.kt` — `onChatTap` opens chat sheet (not all-apps)
+- `AriaPredictedPanel.kt` — same chat tap change
+- `ChatMessage.kt` — add `TOOL` role, `ToolResult` data class
+- `ClaudeProvider.kt` — multi-turn tool calling (send tool results back in correct API format)
+- `OpenAICompatibleProvider.kt` — same multi-turn support for OpenAI-format APIs
+- `AriaPrompts.kt` — update system prompt to mention chat context
+
+### Features
+- Streaming responses (words appear as generated)
+- Native tool calling with all tools from Session 6 (open_app, search_web, set_reminder, get_directions, compose_message)
+- Works with Claude, Gemini, and Ollama
+- Error shown when no AI provider configured
 
 ---
 
-## Phase 7 — Onboarding + Settings (Session 10)
+## Phase 7 — Onboarding + Settings + QR Token Pairing (Session 10)
+
+### New Dependency
+- `play-services-code-scanner:16.1.0` — Google's barcode scanner (handles camera UI, no camera permission needed)
+
+### Architecture
+
+**New files** (all under `aria/`):
+- `data/AriaPreferences.kt` — DataStore: home/work WiFi, onboarding version, card feed enabled, LLM ranking enabled
+- `ui/onboarding/AriaOnboardingActivity.kt` — 6-page wizard (replaces old single-screen):
+  1. Welcome — what ARIA does
+  2. Permissions — usage stats, location, activity, calendar
+  3. Notification access — why it's needed, button to enable
+  4. AI setup — Gemini (free, recommended), Claude (API key or QR scan), Ollama (server URL)
+  5. WiFi — enter home/work WiFi names for location detection
+  6. Ready — "ARIA gets smarter every morning while you sleep"
+- `ui/onboarding/QrTokenScanner.kt` — Google barcode scanner → parse JSON payload → configure Claude provider
+- `ui/onboarding/WifiSetupPage.kt` — WiFi name input, auto-fill current SSID, save to preferences
+- `ui/onboarding/LlmSetupPage.kt` — provider selection, API key inputs, test connection, QR scan for Claude
+- `ui/onboarding/OnboardingPages.kt` — shared components: page layout template, dot indicators, permission rows
+- `ui/settings/AriaSettingsPreferences.kt` — user-facing settings: active AI provider, WiFi labels, skill toggles, notif access status, clear data
+
+**Modified files:**
+- Old `AriaOnboardingActivity.kt` — deleted (replaced by `ui/onboarding/` version)
+- `AndroidManifest.xml` — update activity path
+- `LawnchairLauncher.kt` — update import for new onboarding
+- `AriaHomeState.kt` — read WiFi labels from `AriaPreferences` (fixes WiFi label TODOs)
+- `PredictionEngine.kt` — inject `AriaPreferences` for WiFi labels
+- `NightlyPredictionWorker.kt` — read WiFi labels from preferences
+- `PreferenceRoutes.kt` — add `AriaSettings` route
+- `PreferenceNavigation.kt` — wire settings screen
+- `PreferencesDashboard.kt` — add "ARIA" settings entry
+- `build.gradle` — add `play-services-code-scanner` dependency
+- `libs.versions.toml` — add scanner version + library entry
 
 ### QR Code Token Pairing
 Run `aria-setup.sh` on laptop → scan QR code with phone. Transfers Claude OAuth + refresh tokens without copy-paste.
-
-### Onboarding Flow
-1. Welcome — value prop
-2. Permissions — runtime grants (location, activity, calendar, usage stats)
-3. Notification access — for skill data
-4. LLM Setup — Gemini (recommended, free), Claude (subscription or API key), Ollama
-5. Home/Work WiFi — for location context
-6. Ready — "ARIA gets smarter every morning while you sleep"
 
 ### Runtime Permissions Needed
 - `ACCESS_FINE_LOCATION` — for WiFi SSID (home/work detection)

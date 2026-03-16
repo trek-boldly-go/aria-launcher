@@ -2,3 +2,11 @@
 
 *.bat text eol=crlf
 *.jar binary
+
+# Always keep ARIA's version of these files during upstream merges
+README.md merge=ours
+CONTRIBUTING.md merge=ours
+SECURITY.md merge=ours
+ROADMAP.md merge=ours
+GITHUB_CHANGELOG.md merge=ours
+VERIFICATION.md merge=ours

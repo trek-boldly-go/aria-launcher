@@ -239,7 +239,7 @@ android {
 
         debug {
             applicationIdSuffix ".debug"
-            resValue("string", "derived_app_name", "Lawnchair (Debug)")
+            resValue("string", "derived_app_name", "ARIA (Debug)")
 
             manifestPlaceholders.quickstepMinSdk = "0"
             manifestPlaceholders.quickstepMaxSdk = "100000"
@@ -248,7 +248,7 @@ android {
         }
 
         release {
-            resValue("string", "derived_app_name", "Lawnchair")
+            resValue("string", "derived_app_name", "ARIA")
             minifyEnabled true
             shrinkResources true
             pseudoLocalesEnabled false
@@ -258,6 +258,10 @@ android {
 
     compileOptions {
         coreLibraryDesugaringEnabled true
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
     }
 
     dependenciesInfo {
@@ -352,6 +356,12 @@ android {
             java.srcDirs = ['quickstep/src', 'quickstep/dagger', 'quickstep/recents_ui_overrides/src', 'quickstep/src_protolog']
             kotlin.directories.addAll('quickstep/src', 'quickstep/dagger', 'quickstep/recents_ui_overrides/src', 'quickstep/src_protolog')
             manifest.srcFile "quickstep/AndroidManifest.xml"
+        }
+
+        // ARIA unit test sources (must be outside production source roots)
+        test {
+            java.srcDirs += ['tests/unit']
+            kotlin.directories.add('tests/unit')
         }
     }
 }
@@ -492,10 +502,18 @@ dependencies {
     ksp libs.androidx.hilt.compiler
     implementation libs.play.services.location
     implementation libs.okhttp.sse
+    implementation libs.play.services.code.scanner
 
     implementation libs.google.guava
 
     debugImplementation libs.leakcanary.android
+
+    // ARIA test dependencies
+    testImplementation libs.junit
+    testImplementation libs.mockito.kotlin
+    testImplementation libs.mockito.robolectric
+    testImplementation libs.google.truth
+    testImplementation libs.kotlinx.coroutines.test
 }
 
 ksp {
@@ -534,6 +552,7 @@ licensee {
     allowUrl("https://github.com/RikkaApps/HiddenApiRefinePlugin/blob/main/LICENSE")
     allowUrl("https://opensource.org/licenses/mit-license.php")
     allowUrl("https://developer.android.com/studio/terms.html")
+    allowUrl("https://developers.google.com/ml-kit/terms")
 
     bundleAndroidAsset = true
     androidAssetReportPath = 'licenses.json'

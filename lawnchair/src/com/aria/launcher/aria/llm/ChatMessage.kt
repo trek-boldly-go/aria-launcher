@@ -2,7 +2,7 @@ package com.aria.launcher.aria.llm
 
 import kotlinx.serialization.Serializable
 
-enum class Role { USER, ASSISTANT, SYSTEM }
+enum class Role { USER, ASSISTANT, SYSTEM, TOOL }
 
 data class ChatMessage(
     val role: Role,

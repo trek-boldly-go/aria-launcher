@@ -20,12 +20,14 @@ import app.lawnchair.ui.preferences.LocalIsExpandedScreen
 import app.lawnchair.ui.preferences.components.controls.ClickablePreference
 import app.lawnchair.ui.preferences.components.layout.PreferenceGroup
 import app.lawnchair.ui.preferences.components.layout.PreferenceLayout
+import com.aria.launcher.aria.data.AriaNotificationListener
 import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.data.SkillDao
 import com.aria.launcher.aria.data.UsageDataRepository
 import com.aria.launcher.aria.data.UsageStatsCollector
 import com.aria.launcher.aria.engine.ContextKey
 import com.aria.launcher.aria.engine.PredictionEngine
+import com.aria.launcher.aria.engine.SkillOrchestrator
 import com.aria.launcher.aria.llm.LlmProviderManager
 import com.aria.launcher.aria.llm.LlmResult
 import com.aria.launcher.aria.llm.ProviderType
@@ -46,6 +48,7 @@ private interface AriaDebugEntryPoint {
     fun usageStatsCollector(): UsageStatsCollector
     fun llmProviderManager(): LlmProviderManager
     fun skillDao(): SkillDao
+    fun skillOrchestrator(): SkillOrchestrator
 }
 
 @Composable
@@ -71,6 +74,8 @@ fun AriaDebugPreferences(
 
     // Skill state
     var skillCount by remember { mutableStateOf<Int?>(null) }
+    var activeResultCount by remember { mutableStateOf<Int?>(null) }
+    var notifCount by remember { mutableStateOf<Int?>(null) }
 
     // Load stats on first composition
     if (eventCount == null) {
@@ -191,6 +196,29 @@ fun AriaDebugPreferences(
             }
         }
 
+        PreferenceGroup(heading = "Notification Listener") {
+            Item {
+                ClickablePreference(
+                    label = "Notification listener",
+                    subtitle = "Notifications captured: ${notifCount ?: "?"}",
+                    onClick = {
+                        notifCount = AriaNotificationListener.getNotifications().size
+                        Toast.makeText(context, "Active notifications: $notifCount", Toast.LENGTH_SHORT).show()
+                    },
+                )
+            }
+            Item {
+                ClickablePreference(
+                    label = "Android Auto status",
+                    subtitle = run {
+                        val s = entryPoint.contextSignalManager()
+                        "Connected: ${s.isAndroidAutoConnected.value}, Car: ${s.connectedCarName.value ?: "none"}"
+                    },
+                    onClick = {},
+                )
+            }
+        }
+
         PreferenceGroup(heading = "Skill Registry") {
             Item {
                 ClickablePreference(
@@ -219,10 +247,29 @@ fun AriaDebugPreferences(
                         scope.launch {
                             val dao = entryPoint.skillDao()
                             withContext(Dispatchers.IO) {
-                                dao.insertSkills(builtInSkills())
+                                dao.insertSkills(com.aria.launcher.aria.data.BuiltInSkills.all())
                             }
                             skillCount = withContext(Dispatchers.IO) { dao.getAllSkills().size }
                             Toast.makeText(context, "Seeded ${skillCount} skills", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                )
+            }
+            Item {
+                ClickablePreference(
+                    label = "Execute skills",
+                    subtitle = "Active results: ${activeResultCount ?: "?"}",
+                    onClick = {
+                        scope.launch {
+                            val orchestrator = entryPoint.skillOrchestrator()
+                            withContext(Dispatchers.IO) {
+                                orchestrator.executeAllSkills()
+                            }
+                            val dao = entryPoint.skillDao()
+                            activeResultCount = withContext(Dispatchers.IO) {
+                                dao.getActiveResults().size
+                            }
+                            Toast.makeText(context, "Executed. Active results: $activeResultCount", Toast.LENGTH_SHORT).show()
                         }
                     },
                 )
@@ -355,75 +402,3 @@ fun AriaDebugPreferences(
     }
 }
 
-private fun builtInSkills(): List<com.aria.launcher.aria.data.AppSkill> = listOf(
-    com.aria.launcher.aria.data.AppSkill(
-        id = "gmail.inbox_summary",
-        appPackage = "com.google.android.gm",
-        name = "Inbox Summary",
-        description = "Shows unread email count and top messages",
-        triggerType = "PROACTIVE",
-        sourceType = "BUILT_IN",
-        contextMatch = "MORNING,MIDDAY",
-        refreshIntervalMin = 15,
-    ),
-    com.aria.launcher.aria.data.AppSkill(
-        id = "calendar.next_event",
-        appPackage = "com.google.android.calendar",
-        name = "Next Event",
-        description = "Shows the next upcoming calendar event",
-        triggerType = "PROACTIVE",
-        sourceType = "BUILT_IN",
-        contextMatch = "MORNING,MIDDAY,AFTERNOON",
-        refreshIntervalMin = 10,
-    ),
-    com.aria.launcher.aria.data.AppSkill(
-        id = "spotify.now_playing",
-        appPackage = "com.spotify.music",
-        name = "Now Playing",
-        description = "Shows currently playing or recently played track",
-        triggerType = "PROACTIVE",
-        sourceType = "BUILT_IN",
-        contextMatch = "EVENING,NIGHT",
-        refreshIntervalMin = 5,
-    ),
-    com.aria.launcher.aria.data.AppSkill(
-        id = "maps.commute_eta",
-        appPackage = "com.google.android.apps.maps",
-        name = "Commute ETA",
-        description = "Shows estimated commute time and traffic conditions",
-        triggerType = "PROACTIVE",
-        sourceType = "BUILT_IN",
-        contextMatch = "EARLY_MORNING,MORNING,AFTERNOON",
-        refreshIntervalMin = 15,
-    ),
-    com.aria.launcher.aria.data.AppSkill(
-        id = "messages.unread",
-        appPackage = "com.google.android.apps.messaging",
-        name = "Unread Messages",
-        description = "Shows unread message count and recent contacts",
-        triggerType = "PROACTIVE",
-        sourceType = "BUILT_IN",
-        contextMatch = "",
-        refreshIntervalMin = 10,
-    ),
-    com.aria.launcher.aria.data.AppSkill(
-        id = "weather.forecast",
-        appPackage = "com.google.android.apps.weather",
-        name = "Weather Forecast",
-        description = "Shows current conditions and forecast",
-        triggerType = "PROACTIVE",
-        sourceType = "BUILT_IN",
-        contextMatch = "EARLY_MORNING,MORNING,EVENING",
-        refreshIntervalMin = 30,
-    ),
-    com.aria.launcher.aria.data.AppSkill(
-        id = "calendar.tomorrow",
-        appPackage = "com.google.android.calendar",
-        name = "Tomorrow's Schedule",
-        description = "Shows tomorrow's calendar events",
-        triggerType = "PROACTIVE",
-        sourceType = "BUILT_IN",
-        contextMatch = "EVENING,NIGHT",
-        refreshIntervalMin = 60,
-    ),
-)

@@ -40,6 +40,11 @@ object AriaDataModule {
 
     @Provides
     @Singleton
+    fun provideUserMemoryDao(db: AriaDatabase): UserMemoryDao =
+        db.userMemoryDao()
+
+    @Provides
+    @Singleton
     fun provideUsageStatsManager(@ApplicationContext context: Context): UsageStatsManager =
         context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
 }

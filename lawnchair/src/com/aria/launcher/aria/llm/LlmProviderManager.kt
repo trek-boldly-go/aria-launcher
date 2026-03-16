@@ -9,6 +9,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
+import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,6 +35,7 @@ class LlmProviderManager @Inject constructor(
     private val json: Json,
 ) {
     private var cachedProvider: LlmProvider? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val activeProviderType: Flow<ProviderType?> = context.llmPrefsStore.data
         .map { prefs -> prefs[KEY_PROVIDER_TYPE]?.let { ProviderType.valueOf(it) } }
@@ -94,13 +100,21 @@ class LlmProviderManager @Inject constructor(
                 modelId = modelId ?: "claude-sonnet-4-20250514",
                 refreshToken = refreshToken,
                 onTokenRefreshed = { newToken, newRefresh ->
-                    // Token refresh is fire-and-forget; next getProvider() call will re-read
+                    Log.d(TAG, "OAuth token refreshed, persisting to DataStore")
+                    scope.launch {
+                        configureProvider(
+                            type = ProviderType.CLAUDE_OAUTH,
+                            apiKey = newToken,
+                            refreshToken = newRefresh,
+                        )
+                    }
                 },
             )
-            ProviderType.GEMINI -> OpenAICompatibleProvider.gemini(
+            ProviderType.GEMINI -> GeminiProvider(
                 client = client,
                 json = json,
                 apiKey = apiKey,
+                modelId = modelId ?: "gemini-flash-latest",
             )
             ProviderType.OLLAMA -> OllamaProvider(
                 client = client,
@@ -125,6 +139,7 @@ class LlmProviderManager @Inject constructor(
     }
 
     companion object {
+        private const val TAG = "ARIA.LlmProviderManager"
         private val KEY_PROVIDER_TYPE = stringPreferencesKey("provider_type")
         private val KEY_API_KEY = stringPreferencesKey("api_key")
         private val KEY_SERVER_URL = stringPreferencesKey("server_url")

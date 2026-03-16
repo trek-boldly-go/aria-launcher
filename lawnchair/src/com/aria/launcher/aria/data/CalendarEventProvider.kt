@@ -3,6 +3,7 @@ package com.aria.launcher.aria.data
 import android.annotation.SuppressLint
 import android.content.Context
 import android.provider.CalendarContract
+import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -68,7 +69,7 @@ class CalendarEventProvider @Inject constructor(
                 }
             }
         } catch (_: SecurityException) {
-            // READ_CALENDAR not granted — return empty
+            Log.d(TAG, "READ_CALENDAR permission not granted, returning empty")
         }
 
         return results
@@ -95,7 +96,12 @@ class CalendarEventProvider @Inject constructor(
                 null,
             )?.use { it.count > 0 } ?: false
         } catch (_: SecurityException) {
+            Log.d(TAG, "READ_CALENDAR permission not granted")
             false
         }
+    }
+
+    companion object {
+        private const val TAG = "ARIA.Calendar"
     }
 }

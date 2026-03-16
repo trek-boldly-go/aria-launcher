@@ -6,9 +6,14 @@ import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.util.Log
 import com.aria.launcher.aria.data.AppPrediction
+import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.data.ContextSignalManager
+import com.aria.launcher.aria.data.SkillResult
 import com.aria.launcher.aria.data.UsageDataRepository
+import com.aria.launcher.aria.data.UsageStatsCollector
 import com.aria.launcher.aria.engine.ContextKey
+import com.aria.launcher.aria.engine.PredictionEngine
+import com.aria.launcher.aria.engine.SkillOrchestrator
 import com.aria.launcher.aria.engine.TimeBucket
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -21,6 +26,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -43,6 +49,10 @@ class AriaHomeState @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val repository: UsageDataRepository,
     private val contextSignalManager: ContextSignalManager,
+    private val skillOrchestrator: SkillOrchestrator,
+    private val ariaPreferences: AriaPreferences,
+    private val usageStatsCollector: UsageStatsCollector,
+    private val predictionEngine: PredictionEngine,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val pm: PackageManager = appContext.packageManager
@@ -71,9 +81,20 @@ class AriaHomeState @Inject constructor(
         .map { key -> greetingForTimeBucket(key.timeBucket) }
         .stateIn(scope, SharingStarted.Eagerly, greetingForTimeBucket(_contextKey.value.timeBucket))
 
+    val skillResults: StateFlow<List<SkillResult>> = skillOrchestrator.observeActiveResults()
+        .stateIn(scope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     /** Call when the launcher resumes to refresh the context key. */
     fun refreshContext() {
-        _contextKey.value = currentContextKey()
+        val key = currentContextKey()
+        _contextKey.value = key
+        scope.launch(Dispatchers.IO) {
+            try {
+                skillOrchestrator.executeMatchingSkills(key.timeBucket.name)
+            } catch (e: Exception) {
+                Log.w(TAG, "Skill execution failed", e)
+            }
+        }
     }
 
     fun launchApp(packageName: String) {
@@ -82,18 +103,67 @@ class AriaHomeState @Inject constructor(
         appContext.startActivity(intent)
     }
 
+    private var cachedHomeWifi: String? = null
+    private var cachedWorkWifi: String? = null
+
+    init {
+        scope.launch(Dispatchers.IO) {
+            cachedHomeWifi = ariaPreferences.getHomeWifiSsid()
+            cachedWorkWifi = ariaPreferences.getWorkWifiSsid()
+
+            // First-launch bootstrap: collect last 7 days and run predictions immediately
+            if (!ariaPreferences.isBootstrapDone()) {
+                bootstrap()
+            }
+        }
+    }
+
+    /**
+     * One-time bootstrap on first launch: loads the last 7 days of usage data
+     * from UsageStatsManager and immediately generates predictions so the home
+     * screen isn't empty for the first week.
+     */
+    private suspend fun bootstrap() {
+        Log.d(TAG, "Running first-launch bootstrap")
+        try {
+            if (usageStatsCollector.hasPermission()) {
+                // Collect 7 days of history
+                val sevenDaysMs = 7L * 24 * 60 * 60 * 1000L
+                usageStatsCollector.collectAndStore(windowMs = sevenDaysMs)
+
+                // Immediately generate predictions from that data
+                predictionEngine.generatePredictions(
+                    homeWifiSsid = cachedHomeWifi,
+                    workWifiSsid = cachedWorkWifi,
+                    windowDays = 7,
+                )
+
+                // Refresh the context key to pick up the new predictions
+                _contextKey.value = currentContextKey()
+                Log.d(TAG, "Bootstrap complete — predictions generated from 7-day history")
+            } else {
+                Log.d(TAG, "Bootstrap: PACKAGE_USAGE_STATS not granted, skipping data collection")
+            }
+            ariaPreferences.setBootstrapDone()
+        } catch (e: Exception) {
+            Log.e(TAG, "Bootstrap failed (non-fatal, will retry next launch)", e)
+        }
+    }
+
     private fun currentContextKey(): ContextKey {
         return ContextKey.current(
             wifiSsid = contextSignalManager.wifiSsid.value,
             detectedActivity = contextSignalManager.detectedActivity.value,
-            homeWifiSsid = null, // TODO: read from preferences in Session 10
-            workWifiSsid = null,
+            homeWifiSsid = cachedHomeWifi,
+            workWifiSsid = cachedWorkWifi,
+            isAndroidAutoConnected = contextSignalManager.isAndroidAutoConnected.value,
         )
     }
 
     private fun List<AppPrediction>.toUiModels(): List<PredictedApp> {
         return this
             .sortedByDescending { it.score }
+            .distinctBy { it.packageName }
             .filter { it.packageName !in BACKGROUND_BLOCKLIST && it.packageName != appContext.packageName }
             .mapNotNull { prediction ->
                 try {

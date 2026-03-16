@@ -68,6 +68,11 @@ class VerticalSwipeTouchController(
         if ((ev.edgeFlags and Utilities.EDGE_NAV_BAR) != 0) {
             return false
         }
+        // Only allow gesture from hotseat area
+        val hotseat = launcher.hotseat
+        if (hotseat != null && ev.y < hotseat.top) {
+            return false
+        }
         return AbstractFloatingView.getTopOpenView(launcher) == null &&
             launcher.isInState(LauncherState.NORMAL)
     }

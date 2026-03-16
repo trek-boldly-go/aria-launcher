@@ -82,16 +82,18 @@ class OllamaProvider(
                         close(IOException("Empty response body"))
                         return
                     }
-                    reader.forEachLine { line ->
-                        if (line.isBlank()) return@forEachLine
-                        try {
-                            val parsed = json.parseToJsonElement(line).jsonObject
-                            val content = parsed["message"]?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
-                            if (content != null) trySend(content)
-                            val done = parsed["done"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
-                            if (done == true) close()
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Failed to parse NDJSON line", e)
+                    reader.use { r ->
+                        r.forEachLine { line ->
+                            if (line.isBlank()) return@forEachLine
+                            try {
+                                val parsed = json.parseToJsonElement(line).jsonObject
+                                val content = parsed["message"]?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
+                                if (content != null) trySend(content)
+                                val done = parsed["done"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
+                                if (done == true) close()
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to parse NDJSON line", e)
+                            }
                         }
                     }
                     close()

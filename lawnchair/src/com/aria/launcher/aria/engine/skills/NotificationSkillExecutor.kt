@@ -1,0 +1,117 @@
+// Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
+package com.aria.launcher.aria.engine.skills
+
+import com.aria.launcher.aria.data.AppSkill
+import com.aria.launcher.aria.data.AriaNotificationListener
+import com.aria.launcher.aria.data.SkillAction
+import com.aria.launcher.aria.data.SkillResult
+import com.aria.launcher.aria.engine.SkillExecutor
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+
+class NotificationSkillExecutor(
+    private val json: Json,
+) : SkillExecutor {
+
+    override val supportedSkillIds = setOf(
+        "gmail.inbox_summary",
+        "messages.unread",
+        "spotify.now_playing",
+    )
+
+    override suspend fun execute(skill: AppSkill): SkillResult? {
+        return when (skill.id) {
+            "gmail.inbox_summary" -> executeGmailSummary(skill)
+            "messages.unread" -> executeUnreadMessages(skill)
+            "spotify.now_playing" -> executeNowPlaying(skill)
+            else -> null
+        }
+    }
+
+    private fun executeGmailSummary(skill: AppSkill): SkillResult? {
+        val notifications = AriaNotificationListener.getNotificationsForPackage(skill.appPackage)
+        if (notifications.isEmpty()) return null
+
+        val count = notifications.size
+        val subjects = notifications
+            .sortedByDescending { it.postedTime }
+            .take(3)
+            .mapNotNull { it.title }
+
+        val body = if (subjects.isEmpty()) {
+            "$count new email${if (count > 1) "s" else ""}"
+        } else {
+            subjects.joinToString("\n") { "• $it" }
+        }
+
+        val actions = listOf(
+            SkillAction("Open Gmail", "OPEN_APP", skill.appPackage),
+        )
+
+        return SkillResult(
+            skillId = skill.id,
+            title = "Gmail · $count new",
+            body = body,
+            actions = json.encodeToString(actions),
+            priority = minOf(0.5f + count * 0.1f, 0.95f),
+            timestamp = System.currentTimeMillis(),
+            expiresAt = System.currentTimeMillis() + skill.refreshIntervalMin * 60 * 1000L,
+        )
+    }
+
+    private fun executeUnreadMessages(skill: AppSkill): SkillResult? {
+        val notifications = AriaNotificationListener.getNotificationsForPackage(skill.appPackage)
+        if (notifications.isEmpty()) return null
+
+        val count = notifications.size
+        val senders = notifications
+            .sortedByDescending { it.postedTime }
+            .take(3)
+            .mapNotNull { it.title }
+            .distinct()
+
+        val body = if (senders.isEmpty()) {
+            "$count unread message${if (count > 1) "s" else ""}"
+        } else {
+            "From: ${senders.joinToString(", ")}"
+        }
+
+        val actions = listOf(
+            SkillAction("Open Messages", "OPEN_APP", skill.appPackage),
+        )
+
+        return SkillResult(
+            skillId = skill.id,
+            title = "Messages · $count unread",
+            body = body,
+            actions = json.encodeToString(actions),
+            priority = minOf(0.6f + count * 0.1f, 0.95f),
+            timestamp = System.currentTimeMillis(),
+            expiresAt = System.currentTimeMillis() + skill.refreshIntervalMin * 60 * 1000L,
+        )
+    }
+
+    private fun executeNowPlaying(skill: AppSkill): SkillResult? {
+        val notifications = AriaNotificationListener.getNotificationsForPackage(skill.appPackage)
+        val mediaNotification = notifications.find {
+            it.category == "transport" || it.isOngoing
+        } ?: return null
+
+        val title = mediaNotification.title ?: "Unknown Track"
+        val artist = mediaNotification.text ?: ""
+
+        val actions = listOf(
+            SkillAction("Open Spotify", "OPEN_APP", skill.appPackage),
+        )
+
+        return SkillResult(
+            skillId = skill.id,
+            title = "Now Playing",
+            body = if (artist.isNotBlank()) "$title — $artist" else title,
+            actions = json.encodeToString(actions),
+            priority = 0.3f,
+            timestamp = System.currentTimeMillis(),
+            expiresAt = System.currentTimeMillis() + skill.refreshIntervalMin * 60 * 1000L,
+        )
+    }
+}

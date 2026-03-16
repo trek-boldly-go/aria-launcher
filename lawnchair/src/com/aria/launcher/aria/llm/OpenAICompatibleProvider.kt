@@ -39,7 +39,15 @@ class OpenAICompatibleProvider(
 ) : LlmProvider {
 
     private val completionsUrl: String
-        get() = "${baseUrl.trimEnd('/')}/v1/chat/completions"
+        get() {
+            val base = baseUrl.trimEnd('/')
+            // If the base URL already contains an API version path, just append chat/completions
+            return if (base.contains("/v1") || base.contains("/v2")) {
+                "$base/chat/completions"
+            } else {
+                "$base/v1/chat/completions"
+            }
+        }
 
     override suspend fun complete(
         systemPrompt: String,
@@ -49,12 +57,13 @@ class OpenAICompatibleProvider(
         val body = buildRequestBody(systemPrompt, messages, maxTokens)
         val request = buildRequest(body)
         try {
-            val response = client.newCall(request).execute()
-            val responseBody = response.body?.string() ?: return@withContext LlmResult.Error("Empty response")
-            if (!response.isSuccessful) {
-                return@withContext LlmResult.Error("HTTP ${response.code}: $responseBody")
+            client.newCall(request).execute().use { response ->
+                val responseBody = response.body?.string() ?: return@withContext LlmResult.Error("Empty response")
+                if (!response.isSuccessful) {
+                    return@withContext LlmResult.Error("HTTP ${response.code}: $responseBody")
+                }
+                parseResponse(responseBody)
             }
-            parseResponse(responseBody)
         } catch (e: IOException) {
             LlmResult.Error("Network error: ${e.message}", e)
         }
@@ -107,12 +116,13 @@ class OpenAICompatibleProvider(
         val body = buildRequestBody(systemPrompt, messages, maxTokens, tools = tools)
         val request = buildRequest(body)
         try {
-            val response = client.newCall(request).execute()
-            val responseBody = response.body?.string() ?: return@withContext LlmResult.Error("Empty response")
-            if (!response.isSuccessful) {
-                return@withContext LlmResult.Error("HTTP ${response.code}: $responseBody")
+            client.newCall(request).execute().use { response ->
+                val responseBody = response.body?.string() ?: return@withContext LlmResult.Error("Empty response")
+                if (!response.isSuccessful) {
+                    return@withContext LlmResult.Error("HTTP ${response.code}: $responseBody")
+                }
+                parseResponseWithTools(responseBody)
             }
-            parseResponseWithTools(responseBody)
         } catch (e: IOException) {
             LlmResult.Error("Network error: ${e.message}", e)
         }
@@ -136,8 +146,14 @@ class OpenAICompatibleProvider(
                     put("content", systemPrompt)
                 })
                 for (msg in messages) {
+                    val role = when (msg.role) {
+                        Role.ASSISTANT -> "assistant"
+                        Role.SYSTEM -> "system"
+                        Role.TOOL -> "user" // Tool results sent as user messages
+                        else -> "user"
+                    }
                     add(buildJsonObject {
-                        put("role", if (msg.role == Role.ASSISTANT) "assistant" else "user")
+                        put("role", role)
                         put("content", msg.content)
                     })
                 }
@@ -226,7 +242,7 @@ class OpenAICompatibleProvider(
             OpenAICompatibleProvider(
                 client = client,
                 json = json,
-                baseUrl = "https://generativelanguage.googleapis.com",
+                baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai",
                 apiKey = apiKey,
                 modelId = "gemini-2.0-flash",
                 name = "Gemini",

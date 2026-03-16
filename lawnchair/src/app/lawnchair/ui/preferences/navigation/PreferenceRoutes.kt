@@ -76,6 +76,9 @@ data object DebugMenu : PreferenceRootRoute
 data object AriaDebug : PreferenceRootRoute
 
 @Serializable
+data object AriaSettings : PreferenceRootRoute
+
+@Serializable
 data object FeatureFlags : PreferenceRoute
 
 // General section routes

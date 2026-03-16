@@ -18,8 +18,18 @@ object AriaPrompts {
         contextKey: ContextKey,
         recentApps: List<String> = emptyList(),
         upcomingEvents: List<String> = emptyList(),
+        userMemories: List<String> = emptyList(),
     ): String {
         val now = SimpleDateFormat("EEEE, MMMM d, yyyy h:mm a", Locale.getDefault()).format(Date())
+        val memoriesSection = if (userMemories.isNotEmpty()) {
+            """
+
+            What you know about this user:
+            ${userMemories.joinToString("\n") { "- $it" }}
+            """
+        } else {
+            ""
+        }
         return """
             You are ARIA, an AI assistant embedded in the user's Android home screen launcher.
             You are proactive, concise, and context-aware. You surface information the user needs
@@ -33,12 +43,52 @@ object AriaPrompts {
             - Activity: ${signals.detectedActivity.value?.let { activityName(it) } ?: "unknown"}
             - Recent apps: ${recentApps.take(5).joinToString(", ").ifEmpty { "none" }}
             - Upcoming events: ${upcomingEvents.take(3).joinToString("; ").ifEmpty { "none" }}
-
+            $memoriesSection
             Guidelines:
             - Keep responses concise: 1-3 sentences unless the user asks for more.
             - When taking actions, use the provided tools rather than describing what to do.
             - Prioritize actionable information over generic responses.
             - Be aware of time of day and user context when making suggestions.
+            - You are in an interactive chat on the user's home screen.
+            - You can open apps, search the web, set reminders, get directions, and compose messages.
+            - After using a tool, briefly confirm the action was taken.
+            - Use what you know about this user to personalize your responses, but don't mention it unprompted.
+        """.trimIndent()
+    }
+
+    fun buildMemoryExtractionPrompt(
+        recentMessages: List<String>,
+        existingMemories: List<String>,
+    ): String {
+        val existingSection = if (existingMemories.isNotEmpty()) {
+            """
+            Already known facts (do NOT repeat these):
+            ${existingMemories.joinToString("\n") { "- $it" }}
+            """
+        } else {
+            ""
+        }
+        return """
+            You are a memory extraction system. Analyze the conversation below and extract
+            any NEW facts about the user that would be useful to remember for future conversations.
+
+            Focus on:
+            - Personal preferences (favorite apps, food, music, etc.)
+            - Routines and habits (commute times, workout schedule, etc.)
+            - Important people (family, friends, coworkers mentioned by name)
+            - Places they frequent (home, work, gym, etc.)
+            - Any stated preferences about how they want to interact
+
+            Recent conversation:
+            ${recentMessages.joinToString("\n")}
+            $existingSection
+            Rules:
+            - Output one fact per line, prefixed with category: [preference], [routine], [person], [place], or [general]
+            - Only extract facts explicitly stated or strongly implied by the user
+            - Do NOT extract trivial or obvious things (like "user asked about weather")
+            - Do NOT repeat facts already known
+            - If there are no new facts worth remembering, respond with: NONE
+            - Keep each fact concise (under 100 characters)
         """.trimIndent()
     }
 

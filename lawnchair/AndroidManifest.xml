@@ -70,9 +70,25 @@
             </intent-filter>
         </receiver>
         <receiver android:name="com.aria.launcher.aria.data.ActivityUpdateReceiver" android:exported="false" />
+        <receiver android:name="com.aria.launcher.aria.data.AndroidAutoReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.car.CONNECTION_STATE" />
+                <action android:name="android.car.DISCONNECTION_STATE" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name="com.aria.launcher.aria.data.AriaNotificationListener"
+            android:label="ARIA Smart Cards"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <activity
-            android:name="com.aria.launcher.aria.ui.AriaOnboardingActivity"
+            android:name="com.aria.launcher.aria.ui.onboarding.AriaOnboardingActivity"
             android:theme="@style/Theme.Lawnchair"
             android:exported="false"
             android:enableOnBackInvokedCallback="true" />

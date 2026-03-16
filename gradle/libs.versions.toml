@@ -93,6 +93,7 @@ dagger-hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", ve
 
 # ARIA dependencies
 androidx-work-runtime = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "androidx-work" }
+play-services-code-scanner = "com.google.android.gms:play-services-code-scanner:16.1.0"
 androidx-hilt-work = "androidx.hilt:hilt-work:1.2.0"
 androidx-hilt-compiler = "androidx.hilt:hilt-compiler:1.2.0"
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "play-services-location" }

@@ -2,6 +2,7 @@ package com.aria.launcher.aria.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import kotlinx.serialization.Serializable
 
 enum class TriggerType { PROACTIVE, ON_DEMAND, SCHEDULED }
 
@@ -34,6 +35,7 @@ data class SkillResult(
     val expiresAt: Long?,                             // When this result becomes stale
 )
 
+@Serializable
 data class SkillAction(
     val label: String,                               // "Reply"
     val type: String,                                // OPEN_APP, DEEP_LINK, INTENT, AGENT_TASK

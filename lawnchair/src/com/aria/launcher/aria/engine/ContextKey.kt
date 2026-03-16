@@ -16,10 +16,18 @@ enum class TimeBucket {
 
 enum class LocationHint { HOME, WORK, COMMUTE, UNKNOWN }
 
+enum class VehicleContext {
+    NONE,
+    COMMUTE_CAR,
+    ROAD_TRIP,
+    UNKNOWN_VEHICLE,
+}
+
 data class ContextKey(
     val dayType: DayType,
     val timeBucket: TimeBucket,
     val location: LocationHint,
+    val vehicleContext: VehicleContext = VehicleContext.NONE,
 ) {
     fun toStringKey(): String = "${dayType}_${timeBucket}_${location}"
 
@@ -29,18 +37,21 @@ data class ContextKey(
             detectedActivity: Int?,
             homeWifiSsid: String?,
             workWifiSsid: String?,
-        ): ContextKey = fromCalendar(Calendar.getInstance(), wifiSsid, detectedActivity, homeWifiSsid, workWifiSsid)
+            isAndroidAutoConnected: Boolean = false,
+            hasUpcomingFarEvent: Boolean = false,
+        ): ContextKey = fromCalendar(
+            Calendar.getInstance(), wifiSsid, detectedActivity,
+            homeWifiSsid, workWifiSsid, isAndroidAutoConnected, hasUpcomingFarEvent,
+        )
 
-        /**
-         * Build a context key from an arbitrary [Calendar] — used both for the current
-         * moment and when replaying historical events during nightly scoring.
-         */
         fun fromCalendar(
             cal: Calendar,
             wifiSsid: String?,
             detectedActivity: Int?,
             homeWifiSsid: String?,
             workWifiSsid: String?,
+            isAndroidAutoConnected: Boolean = false,
+            hasUpcomingFarEvent: Boolean = false,
         ): ContextKey {
             val hour = cal.get(Calendar.HOUR_OF_DAY)
             val dow = cal.get(Calendar.DAY_OF_WEEK)
@@ -67,13 +78,13 @@ data class ContextKey(
                 else -> LocationHint.UNKNOWN
             }
 
-            return ContextKey(dayType, timeBucket, location)
+            val vehicleContext = resolveVehicleContext(
+                isAndroidAutoConnected, dayType, timeBucket, hasUpcomingFarEvent,
+            )
+
+            return ContextKey(dayType, timeBucket, location, vehicleContext)
         }
 
-        /**
-         * Reconstruct the context key that was active when a historical event was recorded.
-         * Uses the event's own fields (hour, day, WiFi, activity) rather than current state.
-         */
         fun fromEvent(
             hourOfDay: Int,
             dayOfWeek: Int,
@@ -105,6 +116,32 @@ data class ContextKey(
             }
 
             return ContextKey(dayType, timeBucket, location)
+        }
+
+        /**
+         * Heuristic to distinguish commuting vs. road trip when Android Auto is connected:
+         * - Weekday + morning/afternoon + no upcoming far events → likely commute
+         * - Weekend or upcoming far event or evening → likely road trip
+         */
+        private fun resolveVehicleContext(
+            isAndroidAutoConnected: Boolean,
+            dayType: DayType,
+            timeBucket: TimeBucket,
+            hasUpcomingFarEvent: Boolean,
+        ): VehicleContext {
+            if (!isAndroidAutoConnected) return VehicleContext.NONE
+
+            val isTypicalCommuteTime = timeBucket in setOf(
+                TimeBucket.EARLY_MORNING, TimeBucket.MORNING, TimeBucket.AFTERNOON,
+            )
+
+            return when {
+                dayType == DayType.WEEKDAY && isTypicalCommuteTime && !hasUpcomingFarEvent ->
+                    VehicleContext.COMMUTE_CAR
+                hasUpcomingFarEvent || dayType == DayType.WEEKEND ->
+                    VehicleContext.ROAD_TRIP
+                else -> VehicleContext.UNKNOWN_VEHICLE
+            }
         }
     }
 }
