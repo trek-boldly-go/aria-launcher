@@ -1663,7 +1663,7 @@ data class AppChain(
 
 When the trigger app is currently in the foreground or was just opened, boost the followUp app's prediction score. This handles the "bank → calculator → bank" pattern without needing it to be in the feature vector explicitly.
 
-### TFLite Accommodation
+### LiteRT Accommodation
 
 #### Feature Vector (per app, per prediction request)
 
@@ -1720,8 +1720,8 @@ class NightlyModelTrainer(
 
         val (features, labels) = buildTrainingData(events)
 
-        // Use TFLite Model Maker (Python, runs off-device) for initial model
-        // For on-device fine-tuning, use TFLite's transfer learning API
+        // Use LiteRT Model Maker (Python, runs off-device) for initial model
+        // For on-device fine-tuning, use LiteRT's transfer learning API
         // Save updated model to app's private files directory
         updateModelFile(features, labels, modelPath)
     }
@@ -1741,7 +1741,8 @@ class NightlyModelTrainer(
 - PredictionBlender.blendScores() has a `learnedScore` parameter (defaults to 0.0)
 - AriaContext's 40+ fields map to the feature vector
 - NightlyPredictionWorker can host future training step
-- No TFLite dependency added until 16KB-aligned build available
+- LiteRT replaces TFLite and is 16KB-aligned — add `com.google.ai.edge.litert:litert` dep in Session 12
+- LiteRT-LM (on-device LLM inference) is a separate package — covered in Session 15
 
 ---
 
@@ -1812,7 +1813,6 @@ Session 14: ContextBar + Weather + Polish
 
 ### Two-Tier System
 - **Tier 1 (rule-based):** Fast heuristics from day one — time-of-day, day-of-week, calendar lookups
-- **Tier 2 (TFLite):** Deferred until 16KB-aligned build available
 
 ---
 

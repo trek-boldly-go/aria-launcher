@@ -4,7 +4,7 @@ Read this file before working on this codebase. It contains critical build, arch
 
 ## Project Overview
 
-ARIA (Adaptive Reasoning Interface for Android) is an AI-native launcher built on Lawnchair/Launcher3. Full build plan and architecture: `docs/ARIA_PLAN.md`
+ARIA (Adaptive Reasoning Interface for Android) is an AI-native launcher built on Lawnchair/Launcher3. Architecture index: `docs/ARIA_PLAN.md`. Session specs: `docs/sessions/`
 
 ## Repo Structure
 
@@ -112,23 +112,33 @@ Do **not** scatter ARIA logic across Lawnchair files. If you need to touch a Law
 
 ## Documentation Rules
 
-- **`docs/ARIA_PLAN.md`** is the single source of truth for ARIA architecture, including reference implementations, data models, code examples, and design specs.
+- **`docs/ARIA_PLAN.md`** is the architecture index — session roadmap, tech stack, key decisions, and overview. It is not the full spec.
+- **`docs/sessions/`** contains the authoritative per-session specs (session-07.md through session-14.md). These are the single source of truth for their respective sessions.
 - **Never remove** code examples, data model definitions, reference implementations, or design specs from docs unless moving them to another tracked location. Summarizing reference implementations is data loss.
-- **`docs/archive/`** contains the original source documents (intelligence layer, MCP layer, UI design). `ARIA_PLAN.md` must be a superset of their content.
+- **`docs/archive/`** contains the original pre-consolidation source documents. `docs/sessions/` is the current authoritative superset.
 - When consolidating or editing docs, preserve all detail. If in doubt, keep it.
 
 ## Working on ARIA
 
-Development follows the session plan in `docs/ARIA_PLAN.md`. Each session (7-14) has specific deliverables, data models, and reference implementations.
+Development follows the session plan in `docs/sessions/`. Each session (7-14) has specific deliverables, data models, and reference implementations.
 
 ### One session at a time
 - **Only work on the current session/phase.** Do not start the next session unless the user explicitly says to.
 - If a session's scope is large, break it into sub-tasks within that session — do not pull work forward from future sessions.
 - This prevents context dilution. Each session has enough detail that rushing through it guarantees missed requirements.
 
-### Read the plan before writing code
-- Before starting any session, read the **entire session section** in `ARIA_PLAN.md` — not just the heading and bullet list, but every data model definition, reference implementation, code example, and design note.
-- Cross-reference with the philosophy sections ("The Core Philosophy: Temporal UI, Not Spatial UI", "The Brief", "Philosophies") to ensure new code aligns with the vision.
+### Read the session file before writing code
+
+At the start of each session, read ONE file:
+
+```
+docs/sessions/session-NN.md  (where NN = current session number, e.g. session-07.md)
+```
+
+This file is self-contained: it includes the ARIA vision, the session deliverables, and only the spec excerpts needed for that session.
+
+**Do NOT read `docs/ARIA_PLAN.md` before starting a session** — it is 2000+ lines and will blow context before any code is written. Use it only as a reference if you need to look up something not covered in the session file.
+
 - If the plan specifies a data model or interface, implement it as specified. Do not simplify, rename fields, or omit properties unless there is a compile-time reason to deviate.
 
 ### Maintain the vision
