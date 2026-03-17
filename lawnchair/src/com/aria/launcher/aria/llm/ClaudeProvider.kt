@@ -1,6 +1,8 @@
 package com.aria.launcher.aria.llm
 
 import android.util.Log
+import java.io.IOException
+import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -30,8 +32,6 @@ import okhttp3.Response
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
-import java.io.IOException
-import kotlin.coroutines.resume
 
 class ClaudeProvider(
     private val client: OkHttpClient,
@@ -140,29 +140,36 @@ class ClaudeProvider(
                 for (msg in messages) {
                     val role = when (msg.role) {
                         Role.ASSISTANT -> "assistant"
-                        Role.TOOL -> "user" // Tool results sent as user messages in Claude API
+
+                        Role.TOOL -> "user"
+
+                        // Tool results sent as user messages in Claude API
                         else -> "user"
                     }
-                    add(buildJsonObject {
-                        put("role", role)
-                        put("content", msg.content)
-                    })
+                    add(
+                        buildJsonObject {
+                            put("role", role)
+                            put("content", msg.content)
+                        },
+                    )
                 }
             }
 
             if (tools != null) {
                 putJsonArray("tools") {
                     for (tool in tools) {
-                        add(buildJsonObject {
-                            put("name", tool.name)
-                            put("description", tool.description)
-                            putJsonObject("input_schema") {
-                                put("type", "object")
-                                for ((key, value) in tool.inputSchema) {
-                                    put(key, value)
+                        add(
+                            buildJsonObject {
+                                put("name", tool.name)
+                                put("description", tool.description)
+                                putJsonObject("input_schema") {
+                                    put("type", "object")
+                                    for ((key, value) in tool.inputSchema) {
+                                        put(key, value)
+                                    }
                                 }
-                            }
-                        })
+                            },
+                        )
                     }
                 }
             }
@@ -195,6 +202,7 @@ class ClaudeProvider(
                     "text" -> {
                         obj["text"]?.jsonPrimitive?.contentOrNull?.let { textParts.add(it) }
                     }
+
                     "tool_use" -> {
                         val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: ""
                         val name = obj["name"]?.jsonPrimitive?.contentOrNull ?: ""

@@ -34,7 +34,11 @@ class AriaNotificationListener : NotificationListenerService() {
         Log.d(TAG, "NotificationListener connected")
         synchronized(lock) {
             cachedNotifications.clear()
-            val active = try { getActiveNotifications() } catch (_: Exception) { null }
+            val active = try {
+                getActiveNotifications()
+            } catch (_: Exception) {
+                null
+            }
             if (active != null) {
                 for (sbn in active) {
                     if (sbn.packageName !in NOISE_PACKAGES) {

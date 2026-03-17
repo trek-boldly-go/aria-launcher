@@ -56,9 +56,10 @@ import app.lawnchair.ui.theme.LawnchairTheme
 import com.aria.launcher.aria.data.AriaNotificationListener
 import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.llm.LlmProviderManager
-import dagger.hilt.android.EntryPointAccessors
+import com.aria.launcher.aria.ui.AriaHomeState
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -71,6 +72,7 @@ class AriaOnboardingActivity : ComponentActivity() {
     interface OnboardingEntryPoint {
         fun llmProviderManager(): LlmProviderManager
         fun ariaPreferences(): AriaPreferences
+        fun ariaHomeState(): AriaHomeState
     }
 
     private var currentPage by mutableIntStateOf(0)
@@ -155,7 +157,9 @@ class AriaOnboardingActivity : ComponentActivity() {
     private fun hasUsageStatsPermission(): Boolean {
         val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
         val mode = appOps.unsafeCheckOpNoThrow(
-            AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName,
+            AppOpsManager.OPSTR_GET_USAGE_STATS,
+            Process.myUid(),
+            packageName,
         )
         return mode == AppOpsManager.MODE_ALLOWED
     }
@@ -195,6 +199,9 @@ class AriaOnboardingActivity : ComponentActivity() {
                 if (workWifi.isNotBlank()) prefs.setWorkWifiSsid(workWifi)
                 prefs.setOnboardingVersion(AriaPreferences.CURRENT_ONBOARDING_VERSION)
             }
+            // Kick off bootstrap now that permissions are granted — don't make the user wait
+            // for a cold restart to see predicted apps.
+            entryPoint.ariaHomeState().triggerBootstrapAfterOnboarding()
         }
         // Also set legacy SharedPreferences flag for backward compat
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -221,6 +228,7 @@ class AriaOnboardingActivity : ComponentActivity() {
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Suppress("ktlint:compose:parameter-naming")
 @Composable
 private fun OnboardingWizard(
     currentPage: Int,
@@ -257,6 +265,7 @@ private fun OnboardingWizard(
         ) { page ->
             when (page) {
                 0 -> WelcomePage()
+
                 1 -> PermissionsPage(
                     usageStatsGranted = usageStatsGranted,
                     notificationsGranted = notificationsGranted,
@@ -266,14 +275,17 @@ private fun OnboardingWizard(
                     onGrantUsageStats = onGrantUsageStats,
                     onGrantRuntimePermissions = onGrantRuntimePermissions,
                 )
+
                 2 -> NotificationAccessPage(
                     isEnabled = notifListenerEnabled,
                     onEnable = onGrantNotifListener,
                 )
+
                 3 -> LlmSetupPage(
                     llmProviderManager = llmProviderManager,
                     onQrScanRequested = onQrScan,
                 )
+
                 4 -> WifiSetupPage(
                     homeWifi = homeWifi,
                     workWifi = workWifi,
@@ -281,6 +293,7 @@ private fun OnboardingWizard(
                     onHomeWifiChanged = onHomeWifiChanged,
                     onWorkWifiChanged = onWorkWifiChanged,
                 )
+
                 5 -> ReadyPage()
             }
         }

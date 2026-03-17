@@ -19,13 +19,6 @@ package app.lawnchair
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.Application
-import androidx.hilt.work.HiltWorkerFactory
-import androidx.work.Configuration
-import com.aria.launcher.aria.data.ContextSignalManager
-import com.aria.launcher.aria.scheduler.NightlyPredictionWorker
-import com.aria.launcher.aria.scheduler.UsageCollectionWorker
-import dagger.hilt.android.HiltAndroidApp
-import javax.inject.Inject
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -46,6 +39,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
 import app.lawnchair.backup.LawnchairBackup
 import app.lawnchair.flowerpot.Flowerpot
 import app.lawnchair.preferences.PreferenceManager
@@ -61,12 +56,20 @@ import com.android.launcher3.R
 import com.android.launcher3.Utilities
 import com.android.quickstep.RecentsActivity
 import com.android.systemui.shared.system.QuickStepContract
+import com.aria.launcher.aria.data.ContextSignalManager
+import com.aria.launcher.aria.scheduler.NightlyPredictionWorker
+import com.aria.launcher.aria.scheduler.UsageCollectionWorker
+import dagger.hilt.android.HiltAndroidApp
 import java.io.File
+import javax.inject.Inject
 
 @HiltAndroidApp
-class LawnchairApp : Application(), Configuration.Provider {
+class LawnchairApp :
+    Application(),
+    Configuration.Provider {
 
     @Inject lateinit var contextSignalManager: ContextSignalManager
+
     @Inject lateinit var workerFactory: HiltWorkerFactory
 
     override val workManagerConfiguration: Configuration

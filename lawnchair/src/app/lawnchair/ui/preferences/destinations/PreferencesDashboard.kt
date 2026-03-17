@@ -57,9 +57,10 @@ import app.lawnchair.ui.preferences.components.layout.PreferenceLayout
 import app.lawnchair.ui.preferences.components.layout.PreferenceTemplate
 import app.lawnchair.ui.preferences.data.liveinfo.SyncLiveInformation
 import app.lawnchair.ui.preferences.navigation.About
-import app.lawnchair.ui.preferences.navigation.AriaDebug
-import app.lawnchair.ui.preferences.navigation.AriaSettings
 import app.lawnchair.ui.preferences.navigation.AppDrawer
+import app.lawnchair.ui.preferences.navigation.AriaDebug
+import app.lawnchair.ui.preferences.navigation.AriaRules
+import app.lawnchair.ui.preferences.navigation.AriaSettings
 import app.lawnchair.ui.preferences.navigation.BackupAndRestore
 import app.lawnchair.ui.preferences.navigation.CreateBackup
 import app.lawnchair.ui.preferences.navigation.DebugMenu
@@ -251,6 +252,18 @@ fun PreferencesDashboard(
                     iconResource = R.drawable.ic_smartspace,
                     onNavigate = { onNavigate(AriaSettings) },
                     isSelected = currentRoute is AriaSettings,
+                    isFirst = it.isFirst,
+                    isLast = it.isLast,
+                )
+            }
+
+            Item {
+                PreferenceCategory(
+                    label = "ARIA Rules",
+                    description = "Manage rules created from chat",
+                    iconResource = R.drawable.ic_smartspace,
+                    onNavigate = { onNavigate(AriaRules) },
+                    isSelected = currentRoute is AriaRules,
                     isFirst = it.isFirst,
                     isLast = it.isLast,
                 )

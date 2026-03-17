@@ -28,12 +28,21 @@ class IntentExecutor @Inject constructor(
 
     override suspend fun canExecute(action: RuleAction): Boolean = when (action) {
         is RuleAction.OpenApp -> true
+
         is RuleAction.SurfaceApp -> true
+
         is RuleAction.SendMessage -> true
-        is RuleAction.ShowCard -> false // cards are handled by the UI layer
-        is RuleAction.SuppressApp -> false // handled by prediction filtering
+
+        is RuleAction.ShowCard -> false
+
+        // cards are handled by the UI layer
+        is RuleAction.SuppressApp -> false
+
+        // handled by prediction filtering
         is RuleAction.SetSpace -> false
+
         is RuleAction.RunSkill -> false
+
         is RuleAction.FetchData -> false // MCP executor handles this
     }
 
@@ -56,16 +65,19 @@ class IntentExecutor @Inject constructor(
                     ActionResult.Failure("App not found: ${action.packageName}", recoverable = false)
                 }
             }
+
             is RuleAction.SurfaceApp -> {
                 // SurfaceApp doesn't launch — it boosts prediction score.
                 // The actual surfacing is handled by AriaHomeState.
                 ActionResult.Success()
             }
+
             is RuleAction.SendMessage -> {
                 ActionResult.RequiresConfirmation(
                     "Send message to ${action.contactName}: ${action.messageTemplate}",
                 )
             }
+
             else -> ActionResult.Failure("IntentExecutor cannot handle ${action::class.simpleName}", recoverable = false)
         }
     } catch (e: Exception) {

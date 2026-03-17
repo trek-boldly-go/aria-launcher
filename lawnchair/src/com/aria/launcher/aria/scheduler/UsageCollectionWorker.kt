@@ -62,7 +62,8 @@ class UsageCollectionWorker @AssistedInject constructor(
                 .build()
 
             val request = PeriodicWorkRequestBuilder<UsageCollectionWorker>(
-                INTERVAL_HOURS, TimeUnit.HOURS,
+                INTERVAL_HOURS,
+                TimeUnit.HOURS,
             )
                 .setConstraints(constraints)
                 .build()

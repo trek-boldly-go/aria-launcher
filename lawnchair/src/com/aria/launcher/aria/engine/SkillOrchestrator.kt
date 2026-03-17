@@ -5,11 +5,11 @@ import android.util.Log
 import com.aria.launcher.aria.data.BuiltInSkills
 import com.aria.launcher.aria.data.SkillDao
 import com.aria.launcher.aria.data.SkillResult
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
-import javax.inject.Inject
-import javax.inject.Singleton
 
 @Singleton
 class SkillOrchestrator @Inject constructor(

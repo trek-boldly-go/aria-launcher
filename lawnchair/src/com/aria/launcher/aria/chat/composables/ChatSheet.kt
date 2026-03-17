@@ -24,11 +24,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -162,6 +165,30 @@ fun ChatSheet(
                 if (isGenerating) {
                     item {
                         ThinkingIndicator()
+                    }
+                }
+            }
+
+            // Suggested reply chips — shown when the last assistant message has options
+            val lastSuggestions = messages.lastOrNull()?.suggestedReplies.orEmpty()
+            if (lastSuggestions.isNotEmpty() && !isGenerating) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    lastSuggestions.forEach { suggestion ->
+                        FilterChip(
+                            selected = false,
+                            onClick = {
+                                scope.launch {
+                                    chatState.sendMessage(suggestion)
+                                }
+                            },
+                            label = { Text(suggestion) },
+                        )
                     }
                 }
             }

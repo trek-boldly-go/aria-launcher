@@ -2,14 +2,14 @@ package com.aria.launcher.aria.llm
 
 import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.engine.ContextKey
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 object AriaPrompts {
 

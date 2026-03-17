@@ -1,6 +1,7 @@
 package com.aria.launcher.aria.ui.brief
 
 import com.aria.launcher.aria.engine.AriaContext
+import com.aria.launcher.aria.engine.BriefEditorialEngine
 import com.aria.launcher.aria.engine.ContextKey
 import com.aria.launcher.aria.engine.DayType
 import com.aria.launcher.aria.engine.LocationHint
@@ -8,9 +9,23 @@ import com.aria.launcher.aria.engine.TimeBucket
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import org.mockito.kotlin.any
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.whenever
 
 class BriefAggregatorTest {
+
+    // Returns null so all tests exercise the heuristic fallback path
+    private val editorialEngine = mock<BriefEditorialEngine>()
+
+    @Before
+    fun setup() {
+        runBlocking {
+            whenever(editorialEngine.generateBrief(any())).thenReturn(null)
+        }
+    }
 
     private fun fakeContext() = AriaContext(
         timestampMs = System.currentTimeMillis(),
@@ -36,7 +51,7 @@ class BriefAggregatorTest {
 
     @Test
     fun `empty sources produce empty brief`() = runBlocking {
-        val aggregator = BriefAggregator(emptyList())
+        val aggregator = BriefAggregator(emptyList(), editorialEngine)
         val result = aggregator.buildBrief(fakeContext())
         assertTrue(result.isEmpty())
     }
@@ -51,7 +66,7 @@ class BriefAggregatorTest {
                 action = null,
             )
         }
-        val aggregator = BriefAggregator(listOf(FakeSource("test", items)))
+        val aggregator = BriefAggregator(listOf(FakeSource("test", items)), editorialEngine)
         val result = aggregator.buildBrief(fakeContext())
         assertEquals(5, result.size)
     }
@@ -68,7 +83,7 @@ class BriefAggregatorTest {
         val aggregator = BriefAggregator(listOf(
             FakeSource("cal", listOf(calendar)),
             FakeSource("notif", listOf(reminder)),
-        ))
+        ), editorialEngine)
         val result = aggregator.buildBrief(fakeContext())
         assertEquals(2, result.size)
         assertTrue(result[0] is BriefItem.CalendarEvent)
@@ -81,7 +96,7 @@ class BriefAggregatorTest {
         val aggregator = BriefAggregator(listOf(
             FakeSource("available", listOf(item), available = true),
             FakeSource("unavailable", listOf(item, item), available = false),
-        ))
+        ), editorialEngine)
         val result = aggregator.buildBrief(fakeContext())
         assertEquals(1, result.size)
     }
@@ -92,7 +107,7 @@ class BriefAggregatorTest {
         val critical = BriefItem.AlertAssessed("alert", "Tornado warning", null, AlertSeverity.CRITICAL, null)
         val aggregator = BriefAggregator(listOf(
             FakeSource("weather", listOf(warning, critical)),
-        ))
+        ), editorialEngine)
         val result = aggregator.buildBrief(fakeContext())
         assertEquals(2, result.size)
         assertEquals(AlertSeverity.CRITICAL, (result[0] as BriefItem.AlertAssessed).severity)

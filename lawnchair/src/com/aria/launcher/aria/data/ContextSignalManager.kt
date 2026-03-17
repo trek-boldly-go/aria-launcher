@@ -14,11 +14,11 @@ import android.os.BatteryManager
 import android.util.Log
 import com.google.android.gms.location.ActivityRecognition
 import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Holds the current device context signals used to annotate usage events.
@@ -119,15 +119,18 @@ class ContextSignalManager @Inject constructor(
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .build()
 
-        cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                refreshWifiSsid()
-            }
+        cm.registerNetworkCallback(
+            request,
+            object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    refreshWifiSsid()
+                }
 
-            override fun onLost(network: Network) {
-                _wifiSsid.value = null
-            }
-        })
+                override fun onLost(network: Network) {
+                    _wifiSsid.value = null
+                }
+            },
+        )
     }
 
     private fun registerAndroidAutoListener() {
@@ -162,7 +165,7 @@ class ContextSignalManager @Inject constructor(
 data class ContextSnapshot(
     val isCharging: Boolean,
     val wifiSsid: String?,
-    val detectedActivity: Int?,  // DetectedActivity constants: IN_VEHICLE=0, STILL=3, WALKING=7, etc.
+    val detectedActivity: Int?, // DetectedActivity constants: IN_VEHICLE=0, STILL=3, WALKING=7, etc.
     val isAndroidAutoConnected: Boolean = false,
     val connectedCarName: String? = null,
 )

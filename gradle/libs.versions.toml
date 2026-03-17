@@ -11,6 +11,7 @@ protobuf = "4.34.0"
 retrofit = "3.0.0"
 dagger = "2.59.2"
 androidx-work = "2.10.0"
+litert = "1.0.1"
 play-services-location = "21.3.0"
 libsu = "6.0.0"
 refine = "4.4.0"
@@ -113,6 +114,7 @@ retrofit-core = { group = "com.squareup.retrofit2", name = "retrofit", version.r
 retrofit-converter-kotlinx = { group = "com.squareup.retrofit2", name = "converter-kotlinx-serialization", version.ref = "retrofit" }
 okhttp = "com.squareup.okhttp3:okhttp:5.3.2"
 okhttp-sse = "com.squareup.okhttp3:okhttp-sse:5.3.2"
+litert = { group = "com.google.ai.edge.litert", name = "litert", version.ref = "litert" }
 
 # Room
 room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "androidx-room" }

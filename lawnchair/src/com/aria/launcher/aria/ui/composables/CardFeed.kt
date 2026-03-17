@@ -74,30 +74,30 @@ fun CardFeed(
         } else {
             for ((index, card) in cards.withIndex()) {
                 key(card.skillId) {
-                AnimatedVisibility(
-                    visible = true,
-                    enter = fadeIn(
-                        animationSpec = tween(
-                            durationMillis = 300,
-                            delayMillis = index * 50,
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = fadeIn(
+                            animationSpec = tween(
+                                durationMillis = 300,
+                                delayMillis = index * 50,
+                            ),
+                        ) + slideInVertically(
+                            animationSpec = tween(
+                                durationMillis = 300,
+                                delayMillis = index * 50,
+                            ),
+                            initialOffsetY = { it / 4 },
                         ),
-                    ) + slideInVertically(
-                        animationSpec = tween(
-                            durationMillis = 300,
-                            delayMillis = index * 50,
-                        ),
-                        initialOffsetY = { it / 4 },
-                    ),
-                ) {
-                    SkillCard(
-                        title = card.title,
-                        body = card.body,
-                        actions = card.actions,
-                        appIcon = card.appIcon,
-                        onCardClick = { onCardClick(card) },
-                        onActionClick = onActionClick,
-                    )
-                }
+                    ) {
+                        SkillCard(
+                            title = card.title,
+                            body = card.body,
+                            actions = card.actions,
+                            appIcon = card.appIcon,
+                            onCardClick = { onCardClick(card) },
+                            onActionClick = onActionClick,
+                        )
+                    }
                 }
             }
         }

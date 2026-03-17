@@ -60,16 +60,19 @@ object CardFeedState {
                         context.startActivity(intent)
                     }
                 }
+
                 "DEEP_LINK" -> {
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(action.payload))
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     context.startActivity(intent)
                 }
+
                 "INTENT" -> {
                     val intent = Intent.parseUri(action.payload, 0)
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     context.startActivity(intent)
                 }
+
                 else -> Log.w(TAG, "Unknown action type: ${action.type}")
             }
         } catch (e: Exception) {

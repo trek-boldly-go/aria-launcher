@@ -15,36 +15,37 @@ object AriaDataModule {
 
     @Provides
     @Singleton
-    fun provideAriaDatabase(@ApplicationContext context: Context): AriaDatabase =
-        AriaDatabase.getInstance(context)
+    fun provideAriaDatabase(@ApplicationContext context: Context): AriaDatabase = AriaDatabase.getInstance(context)
 
     @Provides
     @Singleton
-    fun provideAppUsageEventDao(db: AriaDatabase): AppUsageEventDao =
-        db.appUsageEventDao()
+    fun provideAppUsageEventDao(db: AriaDatabase): AppUsageEventDao = db.appUsageEventDao()
 
     @Provides
     @Singleton
-    fun provideAppPredictionDao(db: AriaDatabase): AppPredictionDao =
-        db.appPredictionDao()
+    fun provideAppPredictionDao(db: AriaDatabase): AppPredictionDao = db.appPredictionDao()
 
     @Provides
     @Singleton
-    fun provideUsageDataRepository(@ApplicationContext context: Context): UsageDataRepository =
-        UsageDataRepository(context)
+    fun provideUsageDataRepository(@ApplicationContext context: Context): UsageDataRepository = UsageDataRepository(context)
 
     @Provides
     @Singleton
-    fun provideSkillDao(db: AriaDatabase): SkillDao =
-        db.skillDao()
+    fun provideSkillDao(db: AriaDatabase): SkillDao = db.skillDao()
 
     @Provides
     @Singleton
-    fun provideUserMemoryDao(db: AriaDatabase): UserMemoryDao =
-        db.userMemoryDao()
+    fun provideUserMemoryDao(db: AriaDatabase): UserMemoryDao = db.userMemoryDao()
 
     @Provides
     @Singleton
-    fun provideUsageStatsManager(@ApplicationContext context: Context): UsageStatsManager =
-        context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+    fun provideUsageStatsManager(@ApplicationContext context: Context): UsageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+
+    @Provides
+    @Singleton
+    fun provideSsidClassificationDao(db: AriaDatabase): SsidClassificationDao = db.ssidClassificationDao()
+
+    @Provides
+    @Singleton
+    fun provideAppChainDao(db: AriaDatabase): AppChainDao = db.appChainDao()
 }

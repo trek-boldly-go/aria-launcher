@@ -4,10 +4,8 @@ package com.aria.launcher.aria.data
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
-/**
- * MCP entity stubs — entity annotations are present for schema planning,
- * but these classes are NOT added to AriaDatabase until Phase 8.
- */
+// MCP entity stubs — entity annotations are present for schema planning,
+// but these classes are NOT added to AriaDatabase until Phase 8.
 
 /** A discovered MCP server instance. */
 @Entity(tableName = "mcp_servers")

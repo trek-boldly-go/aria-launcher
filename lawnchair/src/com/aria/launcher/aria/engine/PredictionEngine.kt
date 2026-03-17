@@ -24,6 +24,7 @@ import javax.inject.Singleton
 class PredictionEngine @Inject constructor(
     private val repository: UsageDataRepository,
     private val calendarEventProvider: CalendarEventProvider,
+    private val predictionBlender: PredictionBlender,
 ) {
 
     /**
@@ -72,8 +73,16 @@ class PredictionEngine @Inject constructor(
             val maxCount = packageCounts.values.maxOrNull() ?: continue
             if (maxCount == 0) continue
 
+            val totalObservations = packageCounts.values.sum()
+
             for ((pkg, count) in packageCounts) {
-                val score = count.toFloat() / maxCount.toFloat()
+                val frequencyScore = count.toFloat() / maxCount.toFloat()
+                // Blend frequency (Tier 1) with venue prior — prior=0 until LiteRT seam provides it
+                val score = predictionBlender.blendScores(
+                    priorScore = 0f,
+                    learnedScore = frequencyScore,
+                    observationsAtVenue = totalObservations,
+                )
                 // Only keep apps with meaningful signal
                 if (score >= MIN_SCORE_THRESHOLD) {
                     predictions += AppPrediction(
@@ -133,10 +142,10 @@ class PredictionEngine @Inject constructor(
         private const val MEETING_BOOST_SCORE = 0.9f
 
         private val MEETING_PACKAGES = setOf(
-            "us.zoom.videomeetings",    // Zoom
-            "com.microsoft.teams",       // Teams
+            "us.zoom.videomeetings", // Zoom
+            "com.microsoft.teams", // Teams
             "com.google.android.apps.meetings", // Google Meet
-            "com.slack",                 // Slack
+            "com.slack", // Slack
             "com.google.android.calendar", // Google Calendar
         )
     }

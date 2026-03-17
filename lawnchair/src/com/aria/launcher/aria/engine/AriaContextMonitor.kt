@@ -7,6 +7,9 @@ import com.aria.launcher.aria.data.CalendarEventProvider
 import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.data.NearbyWifiScanner
 import com.aria.launcher.aria.data.UsageDataRepository
+import com.aria.launcher.aria.engine.rules.AriaRuleEvaluator
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -19,8 +22,6 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Monitors context signal changes and emits [AriaContext] snapshots.
@@ -35,9 +36,12 @@ class AriaContextMonitor @Inject constructor(
     private val usageDataRepository: UsageDataRepository,
     private val wifiScanner: NearbyWifiScanner,
     private val ariaPreferences: AriaPreferences,
+    private val ssidClassificationService: SsidClassificationService,
+    private val ruleEvaluator: AriaRuleEvaluator,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    @Suppress("ktlint:standard:backing-property-naming")
     private val _context = MutableStateFlow<AriaContext?>(null)
     val contextChanges: StateFlow<AriaContext?> = _context.asStateFlow()
 
@@ -77,7 +81,7 @@ class AriaContextMonitor @Inject constructor(
 
     private suspend fun rebuildContext() {
         try {
-            val newContext = AriaContext.build(
+            val baseContext = AriaContext.build(
                 contextSignalManager = contextSignalManager,
                 calendarEventProvider = calendarEventProvider,
                 usageDataRepository = usageDataRepository,
@@ -85,6 +89,13 @@ class AriaContextMonitor @Inject constructor(
                 homeWifiSsid = cachedHomeWifi,
                 workWifiSsid = cachedWorkWifi,
             )
+
+            // Session 9: classify the current SSID venue
+            val venueContext = enrichWithVenue(baseContext)
+
+            // Session 10: evaluate rules and attach fired rules to context
+            val firedRules = ruleEvaluator.evaluate(venueContext)
+            val newContext = venueContext.copy(firedRules = firedRules)
 
             val oldHash = _context.value?.bucketHash()
             val newHash = newContext.bucketHash()
@@ -95,6 +106,27 @@ class AriaContextMonitor @Inject constructor(
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to rebuild context", e)
+        }
+    }
+
+    private suspend fun enrichWithVenue(context: AriaContext): AriaContext {
+        val ssid = context.wifiSsid ?: return context
+        return try {
+            val venueCategory = ssidClassificationService.classifyIfNeeded(ssid)
+            val visitContext = inferVisitContext(
+                venueCategory = venueCategory,
+                visitCount = 0, // visit tracking added in a future session
+                averageVisitDurationMinutes = 0,
+                dayType = context.contextKey.dayType,
+                calendarEvents = context.upcomingEvents,
+            )
+            context.copy(
+                currentVenueCategory = venueCategory.name,
+                visitContext = visitContext.name,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Venue classification failed for '$ssid'", e)
+            context
         }
     }
 

@@ -1,6 +1,7 @@
 package com.aria.launcher.aria.llm
 
 import android.util.Log
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -27,7 +28,6 @@ import okhttp3.Response
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
-import java.io.IOException
 
 class OpenAICompatibleProvider(
     private val client: OkHttpClient,
@@ -141,40 +141,50 @@ class OpenAICompatibleProvider(
             if (stream) put("stream", true)
 
             putJsonArray("messages") {
-                add(buildJsonObject {
-                    put("role", "system")
-                    put("content", systemPrompt)
-                })
+                add(
+                    buildJsonObject {
+                        put("role", "system")
+                        put("content", systemPrompt)
+                    },
+                )
                 for (msg in messages) {
                     val role = when (msg.role) {
                         Role.ASSISTANT -> "assistant"
+
                         Role.SYSTEM -> "system"
-                        Role.TOOL -> "user" // Tool results sent as user messages
+
+                        Role.TOOL -> "user"
+
+                        // Tool results sent as user messages
                         else -> "user"
                     }
-                    add(buildJsonObject {
-                        put("role", role)
-                        put("content", msg.content)
-                    })
+                    add(
+                        buildJsonObject {
+                            put("role", role)
+                            put("content", msg.content)
+                        },
+                    )
                 }
             }
 
             if (tools != null) {
                 putJsonArray("tools") {
                     for (tool in tools) {
-                        add(buildJsonObject {
-                            put("type", "function")
-                            putJsonObject("function") {
-                                put("name", tool.name)
-                                put("description", tool.description)
-                                putJsonObject("parameters") {
-                                    put("type", "object")
-                                    for ((key, value) in tool.inputSchema) {
-                                        put(key, value)
+                        add(
+                            buildJsonObject {
+                                put("type", "function")
+                                putJsonObject("function") {
+                                    put("name", tool.name)
+                                    put("description", tool.description)
+                                    putJsonObject("parameters") {
+                                        put("type", "object")
+                                        for ((key, value) in tool.inputSchema) {
+                                            put(key, value)
+                                        }
                                     }
                                 }
-                            }
-                        })
+                            },
+                        )
                     }
                 }
             }
@@ -182,13 +192,12 @@ class OpenAICompatibleProvider(
         return json.encodeToString(JsonObject.serializer(), jsonBody)
     }
 
-    private fun buildRequest(body: String): Request =
-        Request.Builder()
-            .url(completionsUrl)
-            .post(body.toRequestBody(JSON_MEDIA_TYPE))
-            .header("content-type", "application/json")
-            .header("Authorization", "Bearer $apiKey")
-            .build()
+    private fun buildRequest(body: String): Request = Request.Builder()
+        .url(completionsUrl)
+        .post(body.toRequestBody(JSON_MEDIA_TYPE))
+        .header("content-type", "application/json")
+        .header("Authorization", "Bearer $apiKey")
+        .build()
 
     private fun parseResponse(responseBody: String): LlmResult {
         return try {
@@ -238,24 +247,22 @@ class OpenAICompatibleProvider(
         private const val TAG = "ARIA.OpenAI"
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
-        fun gemini(client: OkHttpClient, json: Json, apiKey: String): OpenAICompatibleProvider =
-            OpenAICompatibleProvider(
-                client = client,
-                json = json,
-                baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai",
-                apiKey = apiKey,
-                modelId = "gemini-2.0-flash",
-                name = "Gemini",
-            )
+        fun gemini(client: OkHttpClient, json: Json, apiKey: String): OpenAICompatibleProvider = OpenAICompatibleProvider(
+            client = client,
+            json = json,
+            baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai",
+            apiKey = apiKey,
+            modelId = "gemini-2.0-flash",
+            name = "Gemini",
+        )
 
-        fun openRouter(client: OkHttpClient, json: Json, apiKey: String, modelId: String = "anthropic/claude-sonnet-4"): OpenAICompatibleProvider =
-            OpenAICompatibleProvider(
-                client = client,
-                json = json,
-                baseUrl = "https://openrouter.ai/api",
-                apiKey = apiKey,
-                modelId = modelId,
-                name = "OpenRouter",
-            )
+        fun openRouter(client: OkHttpClient, json: Json, apiKey: String, modelId: String = "anthropic/claude-sonnet-4"): OpenAICompatibleProvider = OpenAICompatibleProvider(
+            client = client,
+            json = json,
+            baseUrl = "https://openrouter.ai/api",
+            apiKey = apiKey,
+            modelId = modelId,
+            name = "OpenRouter",
+        )
     }
 }

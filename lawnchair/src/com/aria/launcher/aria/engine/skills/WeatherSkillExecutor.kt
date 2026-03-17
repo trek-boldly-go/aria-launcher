@@ -13,6 +13,7 @@ import com.aria.launcher.aria.engine.SkillExecutor
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.Tasks
+import java.util.concurrent.TimeUnit
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -28,7 +29,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.util.concurrent.TimeUnit
 
 class WeatherSkillExecutor(
     private val context: Context,
@@ -126,18 +126,23 @@ class WeatherSkillExecutor(
         }
         if (windSpeed != null && windSpeed > 0) {
             val windText = if (windGusts != null && windGusts > windSpeed + 10) {
-                "Wind: ${windSpeed} mph, gusts ${windGusts} mph"
+                "Wind: $windSpeed mph, gusts $windGusts mph"
             } else {
-                "Wind: ${windSpeed} mph"
+                "Wind: $windSpeed mph"
             }
             bodyParts.add(windText)
         }
 
         // Flag high winds
         val priority = when {
-            windGusts != null && windGusts >= 45 -> 0.9f  // Advisory-level gusts
+            windGusts != null && windGusts >= 45 -> 0.9f
+
+            // Advisory-level gusts
             windSpeed != null && windSpeed >= 30 -> 0.85f
-            weatherCode >= 95 -> 0.9f  // Thunderstorm
+
+            weatherCode >= 95 -> 0.9f
+
+            // Thunderstorm
             else -> 0.5f
         }
 
@@ -253,13 +258,27 @@ class WeatherSkillExecutor(
         }
 
         private fun weatherCodeToIcon(code: Int): String = when (code) {
-            0 -> "\u2600\uFE0F"      // sunny
-            1, 2 -> "\u26C5"          // partly cloudy
-            3 -> "\u2601\uFE0F"       // cloudy
-            45, 48 -> "\uD83C\uDF2B\uFE0F" // fog
-            51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82 -> "\uD83C\uDF27\uFE0F" // rain
-            71, 73, 75, 77, 85, 86 -> "\uD83C\uDF28\uFE0F" // snow
-            95, 96, 99 -> "\u26C8\uFE0F" // thunderstorm
+            0 -> "\u2600\uFE0F"
+
+            // sunny
+            1, 2 -> "\u26C5"
+
+            // partly cloudy
+            3 -> "\u2601\uFE0F"
+
+            // cloudy
+            45, 48 -> "\uD83C\uDF2B\uFE0F"
+
+            // fog
+            51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82 -> "\uD83C\uDF27\uFE0F"
+
+            // rain
+            71, 73, 75, 77, 85, 86 -> "\uD83C\uDF28\uFE0F"
+
+            // snow
+            95, 96, 99 -> "\u26C8\uFE0F"
+
+            // thunderstorm
             else -> "\uD83C\uDF24\uFE0F"
         }
     }

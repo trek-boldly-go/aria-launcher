@@ -80,10 +80,12 @@ private fun AriaSmartspaceContent(
     endPadding: Int,
 ) {
     val greeting by state.greeting.collectAsState()
+    val contextBar by state.contextBar.collectAsState()
 
     AriaBar(
         greeting = greeting,
         onChatTap = { /* Chat is handled by AriaPredictedPanel */ },
+        contextBar = contextBar,
         modifier = Modifier
             .fillMaxSize()
             .padding(

@@ -1,0 +1,116 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 8,
+    "identityHash": "placeholder_regenerated_on_build",
+    "entities": [
+      {
+        "tableName": "AppUsageEvent",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`packageName` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, `eventType` INTEGER NOT NULL, `hourOfDay` INTEGER NOT NULL, `dayOfWeek` INTEGER NOT NULL, `isCharging` INTEGER NOT NULL, `wifiSsid` TEXT, `detectedActivity` INTEGER, PRIMARY KEY(`packageName`, `timestamp`, `eventType`))",
+        "fields": [
+          { "fieldPath": "packageName", "columnName": "packageName", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "timestamp", "columnName": "timestamp", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "eventType", "columnName": "eventType", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "hourOfDay", "columnName": "hourOfDay", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "dayOfWeek", "columnName": "dayOfWeek", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "isCharging", "columnName": "isCharging", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "wifiSsid", "columnName": "wifiSsid", "affinity": "TEXT" },
+          { "fieldPath": "detectedActivity", "columnName": "detectedActivity", "affinity": "INTEGER" }
+        ],
+        "primaryKey": { "autoGenerate": false, "columnNames": ["packageName", "timestamp", "eventType"] }
+      },
+      {
+        "tableName": "AppPrediction",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`packageName` TEXT NOT NULL, `score` REAL NOT NULL, `lastUpdated` INTEGER NOT NULL, `contextKey` TEXT NOT NULL, PRIMARY KEY(`packageName`, `contextKey`))",
+        "fields": [
+          { "fieldPath": "packageName", "columnName": "packageName", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "score", "columnName": "score", "affinity": "REAL", "notNull": true },
+          { "fieldPath": "lastUpdated", "columnName": "lastUpdated", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "contextKey", "columnName": "contextKey", "affinity": "TEXT", "notNull": true }
+        ],
+        "primaryKey": { "autoGenerate": false, "columnNames": ["packageName", "contextKey"] }
+      },
+      {
+        "tableName": "app_skills",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `appPackage` TEXT NOT NULL, `name` TEXT NOT NULL, `description` TEXT NOT NULL, `triggerType` TEXT NOT NULL, `sourceType` TEXT NOT NULL, `contextMatch` TEXT NOT NULL, `refreshIntervalMin` INTEGER NOT NULL, `enabled` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          { "fieldPath": "id", "columnName": "id", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "appPackage", "columnName": "appPackage", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "name", "columnName": "name", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "description", "columnName": "description", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "triggerType", "columnName": "triggerType", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "sourceType", "columnName": "sourceType", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "contextMatch", "columnName": "contextMatch", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "refreshIntervalMin", "columnName": "refreshIntervalMin", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "enabled", "columnName": "enabled", "affinity": "INTEGER", "notNull": true }
+        ],
+        "primaryKey": { "autoGenerate": false, "columnNames": ["id"] }
+      },
+      {
+        "tableName": "skill_results",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`skillId` TEXT NOT NULL, `title` TEXT NOT NULL, `body` TEXT NOT NULL, `actions` TEXT NOT NULL, `priority` REAL NOT NULL, `timestamp` INTEGER NOT NULL, `expiresAt` INTEGER, PRIMARY KEY(`skillId`, `timestamp`))",
+        "fields": [
+          { "fieldPath": "skillId", "columnName": "skillId", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "title", "columnName": "title", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "body", "columnName": "body", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "actions", "columnName": "actions", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "priority", "columnName": "priority", "affinity": "REAL", "notNull": true },
+          { "fieldPath": "timestamp", "columnName": "timestamp", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "expiresAt", "columnName": "expiresAt", "affinity": "INTEGER" }
+        ],
+        "primaryKey": { "autoGenerate": false, "columnNames": ["skillId", "timestamp"] }
+      },
+      {
+        "tableName": "user_memory",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `fact` TEXT NOT NULL, `category` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `lastReferencedAt` INTEGER NOT NULL, `source` TEXT NOT NULL)",
+        "fields": [
+          { "fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "fact", "columnName": "fact", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "category", "columnName": "category", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "createdAt", "columnName": "createdAt", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "lastReferencedAt", "columnName": "lastReferencedAt", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "source", "columnName": "source", "affinity": "TEXT", "notNull": true }
+        ],
+        "primaryKey": { "autoGenerate": true, "columnNames": ["id"] }
+      },
+      {
+        "tableName": "ssid_classifications",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`ssidHash` TEXT NOT NULL, `rawSsid` TEXT NOT NULL, `venueCategory` TEXT NOT NULL, `visitContext` TEXT NOT NULL, `visitCount` INTEGER NOT NULL, `averageVisitDurationMinutes` INTEGER NOT NULL, `firstSeen` INTEGER NOT NULL, `lastSeen` INTEGER NOT NULL, `userConfirmed` INTEGER NOT NULL, PRIMARY KEY(`ssidHash`))",
+        "fields": [
+          { "fieldPath": "ssidHash", "columnName": "ssidHash", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "rawSsid", "columnName": "rawSsid", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "venueCategory", "columnName": "venueCategory", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "visitContext", "columnName": "visitContext", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "visitCount", "columnName": "visitCount", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "averageVisitDurationMinutes", "columnName": "averageVisitDurationMinutes", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "firstSeen", "columnName": "firstSeen", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "lastSeen", "columnName": "lastSeen", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "userConfirmed", "columnName": "userConfirmed", "affinity": "INTEGER", "notNull": true }
+        ],
+        "primaryKey": { "autoGenerate": false, "columnNames": ["ssidHash"] }
+      },
+      {
+        "tableName": "aria_rules",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `naturalLanguageSource` TEXT NOT NULL, `humanReadableSummary` TEXT NOT NULL, `trigger` TEXT NOT NULL, `action` TEXT NOT NULL, `confidence` REAL NOT NULL, `isEnabled` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `lastTriggeredAt` INTEGER, `triggerCount` INTEGER NOT NULL, `needsUserConfirmation` INTEGER NOT NULL)",
+        "fields": [
+          { "fieldPath": "id", "columnName": "id", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "naturalLanguageSource", "columnName": "naturalLanguageSource", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "humanReadableSummary", "columnName": "humanReadableSummary", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "trigger", "columnName": "trigger", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "action", "columnName": "action", "affinity": "TEXT", "notNull": true },
+          { "fieldPath": "confidence", "columnName": "confidence", "affinity": "REAL", "notNull": true },
+          { "fieldPath": "isEnabled", "columnName": "isEnabled", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "createdAt", "columnName": "createdAt", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "lastTriggeredAt", "columnName": "lastTriggeredAt", "affinity": "INTEGER" },
+          { "fieldPath": "triggerCount", "columnName": "triggerCount", "affinity": "INTEGER", "notNull": true },
+          { "fieldPath": "needsUserConfirmation", "columnName": "needsUserConfirmation", "affinity": "INTEGER", "notNull": true }
+        ],
+        "primaryKey": { "autoGenerate": true, "columnNames": ["id"] }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'placeholder_regenerated_on_build')"
+    ]
+  }
+}

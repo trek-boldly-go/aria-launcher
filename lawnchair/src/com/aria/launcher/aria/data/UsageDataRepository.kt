@@ -15,21 +15,21 @@ import kotlinx.coroutines.flow.Flow
 @Entity(primaryKeys = ["packageName", "timestamp", "eventType"])
 data class AppUsageEvent(
     val packageName: String,
-    val timestamp: Long,          // epoch ms
-    val eventType: Int,           // MOVE_TO_FOREGROUND = 1, MOVE_TO_BACKGROUND = 2
-    val hourOfDay: Int,           // 0–23, derived
-    val dayOfWeek: Int,           // 1=Sun, 7=Sat, derived
+    val timestamp: Long, // epoch ms
+    val eventType: Int, // MOVE_TO_FOREGROUND = 1, MOVE_TO_BACKGROUND = 2
+    val hourOfDay: Int, // 0–23, derived
+    val dayOfWeek: Int, // 1=Sun, 7=Sat, derived
     val isCharging: Boolean,
-    val wifiSsid: String?,        // null if not on WiFi
-    val detectedActivity: Int?,   // from ActivityRecognitionClient (STILL=3, WALKING=7, IN_VEHICLE=0)
+    val wifiSsid: String?, // null if not on WiFi
+    val detectedActivity: Int?, // from ActivityRecognitionClient (STILL=3, WALKING=7, IN_VEHICLE=0)
 )
 
 @Entity(primaryKeys = ["packageName", "contextKey"])
 data class AppPrediction(
     val packageName: String,
-    val score: Float,             // 0.0–1.0 likelihood for current context
+    val score: Float, // 0.0–1.0 likelihood for current context
     val lastUpdated: Long,
-    val contextKey: String,       // e.g. "WEEKDAY_MORNING_UNKNOWN"
+    val contextKey: String, // e.g. "WEEKDAY_MORNING_UNKNOWN"
 )
 
 // ---------------------------------------------------------------------------
@@ -80,7 +80,8 @@ interface AppPredictionDao {
      * Fallback: return the highest-scoring prediction per package across ALL contexts.
      * Used when no predictions match the current context key exactly.
      */
-    @Query("""
+    @Query(
+        """
         SELECT ap.packageName, ap.score, ap.lastUpdated, ap.contextKey
         FROM AppPrediction ap
         INNER JOIN (
@@ -89,7 +90,8 @@ interface AppPredictionDao {
             GROUP BY packageName
         ) best ON ap.packageName = best.packageName AND ap.score = best.maxScore
         ORDER BY ap.score DESC
-    """)
+    """,
+    )
     fun observeTopPredictionsAcrossContexts(): Flow<List<AppPrediction>>
 
     @Query("DELETE FROM AppPrediction WHERE packageName = :pkg")
@@ -134,23 +136,17 @@ class UsageDataRepository(context: Context) {
 
     // --- Prediction writes ---
 
-    suspend fun savePredictions(predictions: List<AppPrediction>) =
-        predictionDao.upsertAll(predictions)
+    suspend fun savePredictions(predictions: List<AppPrediction>) = predictionDao.upsertAll(predictions)
 
     // --- Prediction reads ---
 
-    fun observePredictions(contextKey: String): Flow<List<AppPrediction>> =
-        predictionDao.observePredictionsForContext(contextKey)
+    fun observePredictions(contextKey: String): Flow<List<AppPrediction>> = predictionDao.observePredictionsForContext(contextKey)
 
-    fun observePredictionsFallback(): Flow<List<AppPrediction>> =
-        predictionDao.observeTopPredictionsAcrossContexts()
+    fun observePredictionsFallback(): Flow<List<AppPrediction>> = predictionDao.observeTopPredictionsAcrossContexts()
 
-    suspend fun getTopApps(contextKey: String, limit: Int = 6): List<AppPrediction> =
-        predictionDao.getTopPredictions(contextKey, limit)
+    suspend fun getTopApps(contextKey: String, limit: Int = 6): List<AppPrediction> = predictionDao.getTopPredictions(contextKey, limit)
 
-    suspend fun getAllPredictions(): List<AppPrediction> =
-        predictionDao.getAllPredictions()
+    suspend fun getAllPredictions(): List<AppPrediction> = predictionDao.getAllPredictions()
 
-    suspend fun clearAllPredictions() =
-        predictionDao.deleteAll()
+    suspend fun clearAllPredictions() = predictionDao.deleteAll()
 }

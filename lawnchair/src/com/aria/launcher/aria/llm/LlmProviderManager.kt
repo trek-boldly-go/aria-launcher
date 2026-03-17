@@ -1,21 +1,21 @@
 package com.aria.launcher.aria.llm
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
-import kotlinx.serialization.json.Json
-import okhttp3.OkHttpClient
-import android.util.Log
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import javax.inject.Inject
-import javax.inject.Singleton
+import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
 
 private val Context.llmPrefsStore by preferencesDataStore(name = "aria_llm_prefs")
 
@@ -93,6 +93,7 @@ class LlmProviderManager @Inject constructor(
                 token = apiKey,
                 modelId = modelId ?: "claude-sonnet-4-20250514",
             )
+
             ProviderType.CLAUDE_OAUTH -> ClaudeProvider(
                 client = client,
                 json = json,
@@ -110,18 +111,21 @@ class LlmProviderManager @Inject constructor(
                     }
                 },
             )
+
             ProviderType.GEMINI -> GeminiProvider(
                 client = client,
                 json = json,
                 apiKey = apiKey,
                 modelId = modelId ?: "gemini-flash-latest",
             )
+
             ProviderType.OLLAMA -> OllamaProvider(
                 client = client,
                 json = json,
                 serverUrl = serverUrl,
                 modelId = modelId ?: "qwen2.5:7b",
             )
+
             ProviderType.OPENAI_COMPATIBLE -> OpenAICompatibleProvider(
                 client = client,
                 json = json,
@@ -129,6 +133,7 @@ class LlmProviderManager @Inject constructor(
                 apiKey = apiKey,
                 modelId = modelId ?: "gpt-4o",
             )
+
             ProviderType.OPEN_ROUTER -> OpenAICompatibleProvider.openRouter(
                 client = client,
                 json = json,

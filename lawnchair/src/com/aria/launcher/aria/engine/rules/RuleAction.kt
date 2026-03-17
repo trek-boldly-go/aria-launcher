@@ -1,24 +1,29 @@
 // Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
 package com.aria.launcher.aria.engine.rules
 
-/**
- * Actions ARIA takes when a rule fires.
- * Includes MCP Seam 3: [FetchData] variant (no-op until MCP executor exists).
- */
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+enum class SurfacePriority { ALWAYS_SHOW, BOOST, PIN_TO_DOCK }
+
+@Serializable
 sealed class RuleAction {
 
-    /** Boost an app's visibility in the predicted apps row. */
+    @Serializable
+    @SerialName("surface_app")
     data class SurfaceApp(
         val packageName: String,
         val priority: SurfacePriority,
     ) : RuleAction()
 
-    /** Suppress an app from appearing in predictions. */
+    @Serializable
+    @SerialName("suppress_app")
     data class SuppressApp(
         val packageName: String,
     ) : RuleAction()
 
-    /** Show a card in the Brief. */
+    @Serializable
+    @SerialName("show_card")
     data class ShowCard(
         val cardType: String,
         val headline: String,
@@ -26,40 +31,40 @@ sealed class RuleAction {
         val intentUri: String?,
     ) : RuleAction()
 
-    /** Open an app or deep link. */
+    @Serializable
+    @SerialName("open_app")
     data class OpenApp(
         val packageName: String,
         val intentUri: String? = null,
     ) : RuleAction()
 
-    /** Send a message (requires confirmation). */
+    @Serializable
+    @SerialName("send_message")
     data class SendMessage(
         val contactName: String,
-        val messageTemplate: String,
+        val messageTemplate: String, // supports {time}, {location} tokens
     ) : RuleAction()
 
-    /** Switch to a named space/mode. */
+    @Serializable
+    @SerialName("set_space")
     data class SetSpace(
         val spaceName: String,
     ) : RuleAction()
 
-    /** Run a registered skill with parameters. */
+    @Serializable
+    @SerialName("run_skill")
     data class RunSkill(
         val skillId: String,
         val params: Map<String, String>,
     ) : RuleAction()
 
-    /**
-     * MCP Seam 3: Fetch data from an MCP server.
-     * No-op until MCP executor is implemented in Phase 8.
-     */
+    @Serializable
+    @SerialName("fetch_data")
     data class FetchData(
         val serverId: String,
         val toolName: String,
         val params: Map<String, String>,
         val onSuccess: RuleAction,
-        val onFailure: RuleAction?,
+        val onFailure: RuleAction? = null, // MCP Seam 3 — no-op until Phase 8
     ) : RuleAction()
 }
-
-enum class SurfacePriority { ALWAYS_SHOW, BOOST, PIN_TO_DOCK }

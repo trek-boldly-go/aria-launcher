@@ -1,6 +1,8 @@
 package com.aria.launcher.aria.llm
 
 import android.util.Log
+import java.io.BufferedReader
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -22,8 +24,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import java.io.BufferedReader
-import java.io.IOException
 
 class OllamaProvider(
     private val client: OkHttpClient,
@@ -135,15 +135,19 @@ class OllamaProvider(
             put("model", modelId)
             put("stream", stream)
             putJsonArray("messages") {
-                add(buildJsonObject {
-                    put("role", "system")
-                    put("content", systemPrompt)
-                })
+                add(
+                    buildJsonObject {
+                        put("role", "system")
+                        put("content", systemPrompt)
+                    },
+                )
                 for (msg in messages) {
-                    add(buildJsonObject {
-                        put("role", if (msg.role == Role.ASSISTANT) "assistant" else "user")
-                        put("content", msg.content)
-                    })
+                    add(
+                        buildJsonObject {
+                            put("role", if (msg.role == Role.ASSISTANT) "assistant" else "user")
+                            put("content", msg.content)
+                        },
+                    )
                 }
             }
         }

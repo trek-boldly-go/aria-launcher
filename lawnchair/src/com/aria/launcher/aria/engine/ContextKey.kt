@@ -7,11 +7,11 @@ enum class DayType { WEEKDAY, WEEKEND }
 
 enum class TimeBucket {
     EARLY_MORNING, // 5–7
-    MORNING,       // 8–11
-    MIDDAY,        // 12–13
-    AFTERNOON,     // 14–17
-    EVENING,       // 18–21
-    NIGHT,         // 22–4
+    MORNING, // 8–11
+    MIDDAY, // 12–13
+    AFTERNOON, // 14–17
+    EVENING, // 18–21
+    NIGHT, // 22–4
 }
 
 enum class LocationHint { HOME, WORK, COMMUTE, UNKNOWN }
@@ -29,7 +29,7 @@ data class ContextKey(
     val location: LocationHint,
     val vehicleContext: VehicleContext = VehicleContext.NONE,
 ) {
-    fun toStringKey(): String = "${dayType}_${timeBucket}_${location}"
+    fun toStringKey(): String = "${dayType}_${timeBucket}_$location"
 
     companion object {
         fun current(
@@ -40,8 +40,13 @@ data class ContextKey(
             isAndroidAutoConnected: Boolean = false,
             hasUpcomingFarEvent: Boolean = false,
         ): ContextKey = fromCalendar(
-            Calendar.getInstance(), wifiSsid, detectedActivity,
-            homeWifiSsid, workWifiSsid, isAndroidAutoConnected, hasUpcomingFarEvent,
+            Calendar.getInstance(),
+            wifiSsid,
+            detectedActivity,
+            homeWifiSsid,
+            workWifiSsid,
+            isAndroidAutoConnected,
+            hasUpcomingFarEvent,
         )
 
         fun fromCalendar(
@@ -79,7 +84,10 @@ data class ContextKey(
             }
 
             val vehicleContext = resolveVehicleContext(
-                isAndroidAutoConnected, dayType, timeBucket, hasUpcomingFarEvent,
+                isAndroidAutoConnected,
+                dayType,
+                timeBucket,
+                hasUpcomingFarEvent,
             )
 
             return ContextKey(dayType, timeBucket, location, vehicleContext)
@@ -132,14 +140,18 @@ data class ContextKey(
             if (!isAndroidAutoConnected) return VehicleContext.NONE
 
             val isTypicalCommuteTime = timeBucket in setOf(
-                TimeBucket.EARLY_MORNING, TimeBucket.MORNING, TimeBucket.AFTERNOON,
+                TimeBucket.EARLY_MORNING,
+                TimeBucket.MORNING,
+                TimeBucket.AFTERNOON,
             )
 
             return when {
                 dayType == DayType.WEEKDAY && isTypicalCommuteTime && !hasUpcomingFarEvent ->
                     VehicleContext.COMMUTE_CAR
+
                 hasUpcomingFarEvent || dayType == DayType.WEEKEND ->
                     VehicleContext.ROAD_TRIP
+
                 else -> VehicleContext.UNKNOWN_VEHICLE
             }
         }

@@ -2,6 +2,7 @@ package com.aria.launcher.aria.scheduler
 
 import android.content.Context
 import android.os.PowerManager
+import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -9,8 +10,9 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import android.util.Log
+import com.aria.launcher.aria.data.AppChainDao
 import com.aria.launcher.aria.data.AriaPreferences
+import com.aria.launcher.aria.engine.AppChainDetector
 import com.aria.launcher.aria.engine.PredictionEngine
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -34,6 +36,8 @@ class NightlyPredictionWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val predictionEngine: PredictionEngine,
     private val ariaPreferences: AriaPreferences,
+    private val appChainDetector: AppChainDetector,
+    private val appChainDao: AppChainDao,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -53,6 +57,13 @@ class NightlyPredictionWorker @AssistedInject constructor(
                 homeWifiSsid = homeWifiSsid,
                 workWifiSsid = workWifiSsid,
             )
+            // Detect and persist app chains for daytime boost lookup
+            val chains = appChainDetector.detectChains()
+            if (chains.isNotEmpty()) {
+                appChainDao.deleteAll()
+                appChainDao.upsertAll(chains)
+                Log.d(TAG, "Stored ${chains.size} app chains")
+            }
             Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "NightlyPredictionWorker failed (attempt $runAttemptCount)", e)
@@ -72,7 +83,8 @@ class NightlyPredictionWorker @AssistedInject constructor(
             val delayMs = msUntil3AM()
 
             val request = PeriodicWorkRequestBuilder<NightlyPredictionWorker>(
-                1, TimeUnit.DAYS,
+                1,
+                TimeUnit.DAYS,
             )
                 .setConstraints(constraints)
                 .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)

@@ -21,6 +21,7 @@ class AndroidAutoReceiver : BroadcastReceiver() {
                 lastCarName = if (connected) deviceName else null
                 onConnectionChanged?.invoke(connected, lastCarName)
             }
+
             ACTION_AA_DISCONNECT -> {
                 Log.d(TAG, "Android Auto disconnected")
                 lastConnected = false

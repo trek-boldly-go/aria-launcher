@@ -58,7 +58,9 @@ class UsageStatsCollector @Inject constructor(
             val type = event.eventType
             if (type != UsageEvents.Event.MOVE_TO_FOREGROUND &&
                 type != UsageEvents.Event.MOVE_TO_BACKGROUND
-            ) continue
+            ) {
+                continue
+            }
 
             cal.timeInMillis = event.timeStamp
             batch += AppUsageEvent(
@@ -83,6 +85,7 @@ class UsageStatsCollector @Inject constructor(
 
     companion object {
         private const val TAG = "ARIA.UsageCollector"
+
         /** Default lookback window: last 24 hours. Prevents duplicate ingestion when
          *  the worker runs frequently — Room's REPLACE strategy deduplicates by PK. */
         const val DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1000L

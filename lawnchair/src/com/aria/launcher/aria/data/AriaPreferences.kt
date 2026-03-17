@@ -9,11 +9,11 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import javax.inject.Inject
-import javax.inject.Singleton
 
 private val Context.ariaPrefsStore by preferencesDataStore(name = "aria_preferences")
 
@@ -95,8 +95,7 @@ class AriaPreferences @Inject constructor(
         context.ariaPrefsStore.edit { it[KEY_MEMORY_ENABLED] = enabled }
     }
 
-    suspend fun isBootstrapDone(): Boolean =
-        context.ariaPrefsStore.data.first()[KEY_BOOTSTRAP_DONE] ?: false
+    suspend fun isBootstrapDone(): Boolean = context.ariaPrefsStore.data.first()[KEY_BOOTSTRAP_DONE] ?: false
 
     suspend fun setBootstrapDone() {
         context.ariaPrefsStore.edit { it[KEY_BOOTSTRAP_DONE] = true }

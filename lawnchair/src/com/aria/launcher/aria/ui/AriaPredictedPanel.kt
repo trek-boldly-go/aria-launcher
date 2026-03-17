@@ -6,8 +6,12 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -25,7 +29,8 @@ import app.lawnchair.ui.theme.LawnchairTheme
 import app.lawnchair.util.ProvideLifecycleState
 import com.aria.launcher.aria.chat.ChatState
 import com.aria.launcher.aria.chat.composables.ChatSheet
-import com.aria.launcher.aria.ui.composables.CardFeed
+import com.aria.launcher.aria.ui.brief.composables.AriaBrief
+import com.aria.launcher.aria.ui.composables.PredictedAppsRow
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -33,10 +38,10 @@ import dagger.hilt.components.SingletonComponent
 
 /**
  * Full-page predicted apps panel that sits below the smartspace on the
- * first workspace page. Shows cards + predicted app grid based on context.
+ * first workspace page. Renders the Brief + Predicted Apps.
  *
- * Note: The greeting and date are rendered by AriaSmartspaceContainer above.
- * This panel only renders the card feed content area.
+ * Note: The greeting and date are rendered by AriaSmartspaceContainer above
+ * in the current Lawnchair layout. This panel owns the card feed area.
  */
 class AriaPredictedPanel @JvmOverloads constructor(
     context: Context,
@@ -77,7 +82,6 @@ class AriaPredictedPanel @JvmOverloads constructor(
                         AriaPanelContent(
                             state = ariaHomeState,
                             chatState = chatState,
-                            appContext = context,
                             startPadding = leftPad,
                             endPadding = rightPad,
                         )
@@ -98,17 +102,12 @@ class AriaPredictedPanel @JvmOverloads constructor(
 private fun AriaPanelContent(
     state: AriaHomeState,
     chatState: ChatState,
-    appContext: Context,
     startPadding: Int,
     endPadding: Int,
 ) {
     val predictedApps by state.predictedApps.collectAsState()
-    val skillResults by state.skillResults.collectAsState()
+    val briefItems by state.briefItems.collectAsState()
     var showChat by remember { mutableStateOf(false) }
-
-    val cards = remember(skillResults) {
-        CardFeedState.buildCards(skillResults, appContext)
-    }
 
     Column(
         modifier = Modifier
@@ -117,25 +116,27 @@ private fun AriaPanelContent(
             .padding(
                 start = (startPadding / 2).dp,
                 end = (endPadding / 2).dp,
-            ),
+            )
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.Top,
     ) {
-        CardFeed(
-            cards = cards,
-            predictedApps = predictedApps,
-            onCardClick = { card ->
-                val firstOpenAction = card.actions.firstOrNull { it.type == "OPEN_APP" }
-                if (firstOpenAction != null) {
-                    CardFeedState.handleAction(firstOpenAction, appContext)
-                }
-            },
-            onActionClick = { action ->
-                CardFeedState.handleAction(action, appContext)
-            },
-            onAppClick = { packageName -> state.launchApp(packageName) },
-            onChatTap = { showChat = true },
-            modifier = Modifier.weight(1f),
+        Spacer(modifier = Modifier.height(8.dp))
+
+        AriaBrief(
+            items = briefItems,
+            onActionClick = { action -> state.executeAction(action) },
+            onItemDismiss = { item -> state.dismissItem(item) },
         )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (predictedApps.isNotEmpty()) {
+            PredictedAppsRow(
+                apps = predictedApps,
+                onAppClick = { packageName -> state.launchApp(packageName) },
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
     }
 
     if (showChat) {

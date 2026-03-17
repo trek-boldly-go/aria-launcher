@@ -250,7 +250,7 @@ fun AriaDebugPreferences(
                                 dao.insertSkills(com.aria.launcher.aria.data.BuiltInSkills.all())
                             }
                             skillCount = withContext(Dispatchers.IO) { dao.getAllSkills().size }
-                            Toast.makeText(context, "Seeded ${skillCount} skills", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Seeded $skillCount skills", Toast.LENGTH_SHORT).show()
                         }
                     },
                 )
@@ -401,4 +401,3 @@ fun AriaDebugPreferences(
         }
     }
 }
-

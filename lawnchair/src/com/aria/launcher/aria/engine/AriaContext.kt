@@ -104,10 +104,10 @@ data class AriaContext(
 
 /**
  * Lightweight reference to a rule that fired during context evaluation.
+ * Carries the full [action] so [com.aria.launcher.aria.ui.AriaHomeState] can apply
+ * SurfaceApp/SuppressApp boosts and convert ShowCard into ProactiveSuggestion BriefItems.
  */
 data class FiredRule(
     val ruleId: Long,
-    val ruleName: String,
-    val actionType: String,
-    val actionPayload: String?,
+    val action: com.aria.launcher.aria.engine.rules.RuleAction,
 )

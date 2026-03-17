@@ -24,6 +24,8 @@ data class UiMessage(
     val role: Role,
     val content: String,
     val toolResults: List<ToolResult> = emptyList(),
+    val suggestedReplies: List<String> = emptyList(),
+    val confirmationAction: ConfirmationAction? = null,
 )
 
 class ChatState(
@@ -32,6 +34,7 @@ class ChatState(
     private val contextSignalManager: ContextSignalManager,
     private val userMemoryDao: UserMemoryDao,
     private val ariaPreferences: AriaPreferences,
+    private val ariaChatHandler: AriaChatHandler,
 ) {
     private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
     val messages: StateFlow<List<UiMessage>> = _messages.asStateFlow()
@@ -41,6 +44,9 @@ class ChatState(
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
+
+    /** Pending confirmation action waiting for user to say "Yes" or "No". */
+    private var pendingConfirmation: ConfirmationAction? = null
 
     private val toolExecutor = ToolExecutor(context)
 
@@ -70,15 +76,54 @@ class ChatState(
         _messages.value = _messages.value + userMessage
         ariaPreferences.setChatLastInteraction()
 
-        val provider = llmProviderManager.getProvider()
-        if (provider == null) {
-            _error.value = "No AI provider configured. Set one up in ARIA settings."
-            return
-        }
-
         _isGenerating.value = true
 
         try {
+            // If there's a pending confirmation, handle yes/no before hitting the LLM.
+            val pendingAction = pendingConfirmation
+            if (pendingAction != null) {
+                val lowerText = text.trim().lowercase()
+                if (lowerText.startsWith("yes") || lowerText == "y" || lowerText.contains("save it")) {
+                    pendingConfirmation = null
+                    val response = when (pendingAction) {
+                        is ConfirmationAction.SaveRule -> ariaChatHandler.confirmSaveRule(pendingAction.rule)
+                    }
+                    _messages.value = _messages.value + UiMessage(Role.ASSISTANT, response.text)
+                    return
+                } else if (lowerText.startsWith("no") || lowerText == "n") {
+                    pendingConfirmation = null
+                    _messages.value = _messages.value + UiMessage(Role.ASSISTANT, "Got it, rule discarded.")
+                    return
+                }
+                // "Change it" or anything else falls through to the LLM
+                pendingConfirmation = null
+            }
+
+            // Check for rule creation or management intents before going to the LLM.
+            if (ariaChatHandler.isShowRulesIntent(text)) {
+                val response = ariaChatHandler.handleShowRules()
+                _messages.value = _messages.value + UiMessage(Role.ASSISTANT, response.text)
+                return
+            }
+
+            if (ariaChatHandler.isRuleCreationIntent(text)) {
+                val response = ariaChatHandler.handleRuleCreation(text)
+                pendingConfirmation = response.confirmationAction
+                _messages.value = _messages.value + UiMessage(
+                    role = Role.ASSISTANT,
+                    content = response.text,
+                    suggestedReplies = response.suggestedReplies,
+                    confirmationAction = response.confirmationAction,
+                )
+                return
+            }
+
+            val provider = llmProviderManager.getProvider()
+            if (provider == null) {
+                _error.value = "No AI provider configured. Set one up in ARIA settings."
+                return
+            }
+
             val contextKey = ContextKey.current(
                 wifiSsid = contextSignalManager.wifiSsid.value,
                 detectedActivity = contextSignalManager.detectedActivity.value,
@@ -120,6 +165,7 @@ class ChatState(
                         _messages.value = _messages.value + assistantMessage
                         break
                     }
+
                     is LlmResult.ToolUse -> {
                         // Show any text content from the assistant
                         if (result.content.isNotBlank()) {
@@ -150,6 +196,7 @@ class ChatState(
                         )
                         round++
                     }
+
                     is LlmResult.Error -> {
                         _error.value = result.message
                         Log.e(TAG, "LLM error: ${result.message}", result.cause)

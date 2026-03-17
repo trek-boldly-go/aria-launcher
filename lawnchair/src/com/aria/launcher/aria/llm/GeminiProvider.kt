@@ -1,6 +1,7 @@
 package com.aria.launcher.aria.llm
 
 import android.util.Log
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -25,7 +26,6 @@ import okhttp3.Response
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
-import java.io.IOException
 
 /**
  * Native Gemini API provider. Uses the generateContent endpoint directly
@@ -147,12 +147,14 @@ class GeminiProvider(
             // Conversation contents
             putJsonArray("contents") {
                 for (msg in messages) {
-                    add(buildJsonObject {
-                        put("role", if (msg.role == Role.ASSISTANT) "model" else "user")
-                        putJsonArray("parts") {
-                            add(buildJsonObject { put("text", msg.content) })
-                        }
-                    })
+                    add(
+                        buildJsonObject {
+                            put("role", if (msg.role == Role.ASSISTANT) "model" else "user")
+                            putJsonArray("parts") {
+                                add(buildJsonObject { put("text", msg.content) })
+                            }
+                        },
+                    )
                 }
             }
 
@@ -164,35 +166,38 @@ class GeminiProvider(
             // Tools (function calling)
             if (tools != null && tools.isNotEmpty()) {
                 putJsonArray("tools") {
-                    add(buildJsonObject {
-                        putJsonArray("functionDeclarations") {
-                            for (tool in tools) {
-                                add(buildJsonObject {
-                                    put("name", tool.name)
-                                    put("description", tool.description)
-                                    putJsonObject("parameters") {
-                                        put("type", "OBJECT")
-                                        for ((key, value) in tool.inputSchema) {
-                                            put(key, value)
-                                        }
-                                    }
-                                })
+                    add(
+                        buildJsonObject {
+                            putJsonArray("functionDeclarations") {
+                                for (tool in tools) {
+                                    add(
+                                        buildJsonObject {
+                                            put("name", tool.name)
+                                            put("description", tool.description)
+                                            putJsonObject("parameters") {
+                                                put("type", "OBJECT")
+                                                for ((key, value) in tool.inputSchema) {
+                                                    put(key, value)
+                                                }
+                                            }
+                                        },
+                                    )
+                                }
                             }
-                        }
-                    })
+                        },
+                    )
                 }
             }
         }
         return json.encodeToString(JsonObject.serializer(), jsonBody)
     }
 
-    private fun buildRequest(body: String, stream: Boolean): Request =
-        Request.Builder()
-            .url(generateUrl(stream))
-            .post(body.toRequestBody(JSON_MEDIA_TYPE))
-            .header("Content-Type", "application/json")
-            .header("x-goog-api-key", apiKey)
-            .build()
+    private fun buildRequest(body: String, stream: Boolean): Request = Request.Builder()
+        .url(generateUrl(stream))
+        .post(body.toRequestBody(JSON_MEDIA_TYPE))
+        .header("Content-Type", "application/json")
+        .header("x-goog-api-key", apiKey)
+        .build()
 
     private fun parseResponse(responseBody: String): LlmResult {
         return try {

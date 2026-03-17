@@ -5,30 +5,46 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.util.Log
+import com.aria.launcher.aria.data.AppChain
+import com.aria.launcher.aria.data.AppChainDao
 import com.aria.launcher.aria.data.AppPrediction
 import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.data.SkillResult
 import com.aria.launcher.aria.data.UsageDataRepository
 import com.aria.launcher.aria.data.UsageStatsCollector
+import com.aria.launcher.aria.engine.AriaContext
+import com.aria.launcher.aria.engine.AriaContextMonitor
 import com.aria.launcher.aria.engine.ContextKey
+import com.aria.launcher.aria.engine.LocationHint
+import com.aria.launcher.aria.engine.PredictionBlender
 import com.aria.launcher.aria.engine.PredictionEngine
 import com.aria.launcher.aria.engine.SkillOrchestrator
 import com.aria.launcher.aria.engine.TimeBucket
+import com.aria.launcher.aria.engine.rules.RuleAction
+import com.aria.launcher.aria.engine.rules.SurfacePriority
+import com.aria.launcher.aria.ui.brief.BriefAction
+import com.aria.launcher.aria.ui.brief.BriefAggregator
+import com.aria.launcher.aria.ui.brief.BriefItem
 import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import javax.inject.Inject
-import javax.inject.Singleton
 
 data class PredictedApp(
     val packageName: String,
@@ -53,11 +69,29 @@ class AriaHomeState @Inject constructor(
     private val ariaPreferences: AriaPreferences,
     private val usageStatsCollector: UsageStatsCollector,
     private val predictionEngine: PredictionEngine,
+    private val briefAggregator: BriefAggregator,
+    private val contextMonitor: AriaContextMonitor,
+    private val appChainDao: AppChainDao,
+    private val predictionBlender: PredictionBlender,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val pm: PackageManager = appContext.packageManager
 
+    @Suppress("ktlint:standard:backing-property-naming")
     private val _contextKey = MutableStateFlow(currentContextKey())
+
+    // Chains triggered by the last foreground app — refreshed on each context refresh
+    private val _activeChains = MutableStateFlow<List<AppChain>>(emptyList())
+
+    // Brief state — driven by AriaContextMonitor context changes
+    private val _briefItems = MutableStateFlow<List<BriefItem>>(emptyList())
+    val briefItems: StateFlow<List<BriefItem>> = _briefItems.asStateFlow()
+
+    private val _contextBar = MutableStateFlow<BriefItem.ContextBar?>(null)
+    val contextBar: StateFlow<BriefItem.ContextBar?> = _contextBar.asStateFlow()
+
+    // Track dismissed item keys for the current session
+    private val dismissedKeys = mutableSetOf<String>()
 
     val predictedApps: StateFlow<List<PredictedApp>> = _contextKey
         .map { it.toStringKey() }
@@ -68,6 +102,14 @@ class AriaHomeState @Inject constructor(
             combine(contextSpecific, fallback) { specific, all ->
                 specific.ifEmpty { all }
             }
+        }
+        .combine(contextMonitor.contextChanges) { predictions, context ->
+            // Session 10: apply SurfaceApp/SuppressApp rule actions from fired rules
+            predictions.applyRuleActions(context?.firedRules ?: emptyList())
+        }
+        .combine(_activeChains) { predictions, chains ->
+            // Session 12: boost follow-up apps for currently-active chain triggers
+            predictions.applyChainBoosts(chains)
         }
         .map { predictions ->
             Log.d(TAG, "Predictions count before filter: ${predictions.size}")
@@ -84,17 +126,119 @@ class AriaHomeState @Inject constructor(
     val skillResults: StateFlow<List<SkillResult>> = skillOrchestrator.observeActiveResults()
         .stateIn(scope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** Call when the launcher resumes to refresh the context key. */
+    /** Call when the launcher resumes to refresh the context key and Brief. */
     fun refreshContext() {
         val key = currentContextKey()
         _contextKey.value = key
         scope.launch(Dispatchers.IO) {
             try {
+                contextMonitor.refresh()
                 skillOrchestrator.executeMatchingSkills(key.timeBucket.name)
+                refreshActiveChains()
             } catch (e: Exception) {
-                Log.w(TAG, "Skill execution failed", e)
+                Log.w(TAG, "Context/skill refresh failed", e)
             }
         }
+    }
+
+    /**
+     * Queries the most recent foreground app (before the launcher) and loads
+     * any chains where it is the trigger, so [predictedApps] can boost follow-ups.
+     */
+    private suspend fun refreshActiveChains() {
+        try {
+            val recentMs = System.currentTimeMillis() - CHAIN_TRIGGER_WINDOW_MS
+            val recentEvent = repository.getEventsForTraining(windowDays = 1)
+                .filter { it.eventType == android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND }
+                .filter { it.packageName != appContext.packageName }
+                .maxByOrNull { it.timestamp }
+
+            val triggerPkg = recentEvent?.takeIf { it.timestamp >= recentMs }?.packageName
+            _activeChains.value = if (triggerPkg != null) {
+                appChainDao.getChainsByTrigger(triggerPkg).also {
+                    if (it.isNotEmpty()) Log.d(TAG, "Active chain trigger: $triggerPkg → ${it.size} follow-ups")
+                }
+            } else {
+                emptyList()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Chain trigger refresh failed", e)
+        }
+    }
+
+    /** Rebuild the Brief from a fresh AriaContext snapshot. */
+    private suspend fun refreshBrief(context: AriaContext) {
+        try {
+            val allItems = buildList {
+                addAll(briefAggregator.buildBrief(context))
+                // Session 10: convert ShowCard rule actions into ProactiveSuggestion BriefItems
+                addAll(ruleActionsToCards(context))
+            }
+            val filtered = allItems
+                .filter { it.stableKey() !in dismissedKeys }
+                .distinctBy { it.stableKey() }
+                .take(com.aria.launcher.aria.ui.brief.BriefAggregator.MAX_BRIEF_ITEMS)
+            _briefItems.value = filtered
+            _contextBar.value = buildContextBar(context)
+            Log.d(TAG, "Brief refreshed: ${filtered.size} items")
+        } catch (e: Exception) {
+            Log.w(TAG, "Brief refresh failed", e)
+        }
+    }
+
+    /** Convert ShowCard rule actions in [context.firedRules] into ProactiveSuggestion items. */
+    private fun ruleActionsToCards(context: AriaContext): List<BriefItem.ProactiveSuggestion> =
+        context.firedRules.mapNotNull { fired ->
+            val action = fired.action as? RuleAction.ShowCard ?: return@mapNotNull null
+            BriefItem.ProactiveSuggestion(
+                headline = action.headline,
+                rationale = action.subtext ?: "",
+                action = BriefAction(
+                    label = "Open",
+                    intentUri = action.intentUri,
+                ),
+            )
+        }
+
+    /** Remove a dismissible item from the Brief for this session. */
+    fun dismissItem(item: BriefItem) {
+        dismissedKeys.add(item.stableKey())
+        _briefItems.update { current -> current.filter { it.stableKey() != item.stableKey() } }
+    }
+
+    /** Execute a BriefAction — handles intentUri launches and MCP tool calls (Session 9+). */
+    fun executeAction(action: com.aria.launcher.aria.ui.brief.BriefAction) {
+        val uri = action.intentUri ?: return
+        try {
+            val intent = if (uri.startsWith("package:")) {
+                val pkg = uri.removePrefix("package:")
+                pm.getLaunchIntentForPackage(pkg)
+            } else {
+                Intent.parseUri(uri, Intent.URI_INTENT_SCHEME)
+            }
+            intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)?.let { appContext.startActivity(it) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to execute brief action: ${action.label}", e)
+        }
+    }
+
+    private fun buildContextBar(context: AriaContext): BriefItem.ContextBar {
+        val locationHint = when (context.contextKey.location) {
+            LocationHint.HOME -> "Home"
+            LocationHint.WORK -> "Work"
+            LocationHint.COMMUTE -> "Commute"
+            LocationHint.UNKNOWN -> null
+        }
+        // Use the active weather forecast result (if any) as the context line
+        val weatherResult = skillResults.value.firstOrNull { it.skillId == "weather.forecast" }
+        val weatherLine = weatherResult?.title ?: ""
+        val alertCount = skillResults.value.count { it.skillId == "weather.alerts" }
+
+        return BriefItem.ContextBar(
+            weatherLine = weatherLine,
+            locationHint = locationHint,
+            alertCount = alertCount,
+        )
     }
 
     fun launchApp(packageName: String) {
@@ -107,6 +251,17 @@ class AriaHomeState @Inject constructor(
     private var cachedWorkWifi: String? = null
 
     init {
+        // Start the context monitor — debounces signals, emits on meaningful changes
+        contextMonitor.start()
+
+        // Wire context changes → Brief refresh
+        scope.launch(Dispatchers.IO) {
+            contextMonitor.contextChanges
+                .filterNotNull()
+                .distinctUntilChanged { old, new -> old.bucketHash() == new.bucketHash() }
+                .collectLatest { context -> refreshBrief(context) }
+        }
+
         scope.launch(Dispatchers.IO) {
             cachedHomeWifi = ariaPreferences.getHomeWifiSsid()
             cachedWorkWifi = ariaPreferences.getWorkWifiSsid()
@@ -115,6 +270,18 @@ class AriaHomeState @Inject constructor(
             if (!ariaPreferences.isBootstrapDone()) {
                 bootstrap()
             }
+        }
+    }
+
+    /**
+     * Called from onboarding completion to run bootstrap immediately after permissions
+     * are granted, rather than waiting for the next cold start.
+     */
+    fun triggerBootstrapAfterOnboarding() {
+        scope.launch(Dispatchers.IO) {
+            cachedHomeWifi = ariaPreferences.getHomeWifiSsid()
+            cachedWorkWifi = ariaPreferences.getWorkWifiSsid()
+            bootstrap()
         }
     }
 
@@ -141,10 +308,10 @@ class AriaHomeState @Inject constructor(
                 // Refresh the context key to pick up the new predictions
                 _contextKey.value = currentContextKey()
                 Log.d(TAG, "Bootstrap complete — predictions generated from 7-day history")
+                ariaPreferences.setBootstrapDone()
             } else {
-                Log.d(TAG, "Bootstrap: PACKAGE_USAGE_STATS not granted, skipping data collection")
+                Log.d(TAG, "Bootstrap: PACKAGE_USAGE_STATS not granted, will retry next launch")
             }
-            ariaPreferences.setBootstrapDone()
         } catch (e: Exception) {
             Log.e(TAG, "Bootstrap failed (non-fatal, will retry next launch)", e)
         }
@@ -158,6 +325,57 @@ class AriaHomeState @Inject constructor(
             workWifiSsid = cachedWorkWifi,
             isAndroidAutoConnected = contextSignalManager.isAndroidAutoConnected.value,
         )
+    }
+
+    /**
+     * Apply SurfaceApp and SuppressApp rule actions to the raw prediction list.
+     * - SuppressApp: removes the package entirely.
+     * - SurfaceApp(ALWAYS_SHOW/BOOST): boosts score so it rises to the top.
+     * - SurfaceApp(PIN_TO_DOCK): treated as ALWAYS_SHOW boost (dock pinning is a future seam).
+     */
+    /**
+     * Applies a chain boost to follow-up apps for the currently-active trigger.
+     * The boost is proportional to the chain's observed occurrences.
+     */
+    private fun List<AppPrediction>.applyChainBoosts(chains: List<AppChain>): List<AppPrediction> {
+        if (chains.isEmpty()) return this
+        val boostByPackage = chains.associate { it.followUp to it.occurrences }
+        return map { prediction ->
+            val occurrences = boostByPackage[prediction.packageName]
+            if (occurrences != null) {
+                prediction.copy(score = predictionBlender.applyChainBoost(prediction.score, occurrences))
+            } else {
+                prediction
+            }
+        }
+    }
+
+    private fun List<AppPrediction>.applyRuleActions(
+        firedRules: List<com.aria.launcher.aria.engine.FiredRule>,
+    ): List<AppPrediction> {
+        val suppressedPackages = firedRules
+            .mapNotNull { it.action as? RuleAction.SuppressApp }
+            .map { it.packageName }
+            .toSet()
+
+        val boostedPackages = firedRules
+            .mapNotNull { it.action as? RuleAction.SurfaceApp }
+            .associate { it.packageName to it.priority }
+
+        return this
+            .filter { it.packageName !in suppressedPackages }
+            .map { prediction ->
+                val boost = boostedPackages[prediction.packageName]
+                if (boost != null) {
+                    val boostedScore = when (boost) {
+                        SurfacePriority.ALWAYS_SHOW, SurfacePriority.PIN_TO_DOCK -> Float.MAX_VALUE
+                        SurfacePriority.BOOST -> prediction.score + BOOST_SCORE_DELTA
+                    }
+                    prediction.copy(score = boostedScore)
+                } else {
+                    prediction
+                }
+            }
     }
 
     private fun List<AppPrediction>.toUiModels(): List<PredictedApp> {
@@ -201,21 +419,23 @@ class AriaHomeState @Inject constructor(
     companion object {
         private const val TAG = "ARIA.HomeState"
         private const val MAX_PREDICTED_APPS = 20
+        private const val BOOST_SCORE_DELTA = 1000f // rule-boosted apps float to the top
+        private const val CHAIN_TRIGGER_WINDOW_MS = 5 * 60 * 1000L // 5 min: app counts as active trigger
 
         /** Apps that run in the background but aren't user-facing. */
         private val BACKGROUND_BLOCKLIST = setOf(
-            "com.google.android.gms",                 // Google Play Services
-            "com.google.android.gsf",                 // Google Services Framework
-            "com.google.android.ext.services",        // Android Services Library
+            "com.google.android.gms", // Google Play Services
+            "com.google.android.gsf", // Google Services Framework
+            "com.google.android.ext.services", // Android Services Library
             "com.google.android.providers.media.module", // Media Provider
-            "com.google.android.apps.wellbeing",      // Digital Wellbeing
-            "com.google.android.inputmethod.latin",   // Gboard (gets foreground events from keyboard)
-            "com.android.systemui",                   // System UI
-            "com.android.settings",                   // Settings (rarely intentional)
-            "com.android.vending",                    // Play Store (background updates)
+            "com.google.android.apps.wellbeing", // Digital Wellbeing
+            "com.google.android.inputmethod.latin", // Gboard (gets foreground events from keyboard)
+            "com.android.systemui", // System UI
+            "com.android.settings", // Settings (rarely intentional)
+            "com.android.vending", // Play Store (background updates)
             "com.google.android.permissioncontroller", // Permission Controller
-            "com.google.android.packageinstaller",    // Package Installer
-            "com.google.android.configupdater",       // Config Updater
+            "com.google.android.packageinstaller", // Package Installer
+            "com.google.android.configupdater", // Config Updater
         )
     }
 }

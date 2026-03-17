@@ -503,6 +503,7 @@ dependencies {
     implementation libs.play.services.location
     implementation libs.okhttp.sse
     implementation libs.play.services.code.scanner
+    implementation libs.litert // LiteRT (16KB-aligned TFLite replacement) — seam for Session 14 on-device model
 
     implementation libs.google.guava
 

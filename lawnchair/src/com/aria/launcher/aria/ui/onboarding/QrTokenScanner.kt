@@ -6,9 +6,9 @@ import android.util.Log
 import android.widget.Toast
 import com.aria.launcher.aria.llm.LlmProviderManager
 import com.aria.launcher.aria.llm.ProviderType
+import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

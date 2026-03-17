@@ -25,5 +25,13 @@ object ChatModule {
         contextSignalManager: ContextSignalManager,
         userMemoryDao: UserMemoryDao,
         ariaPreferences: AriaPreferences,
-    ): ChatState = ChatState(context, llmProviderManager, contextSignalManager, userMemoryDao, ariaPreferences)
+        ariaChatHandler: AriaChatHandler,
+    ): ChatState = ChatState(
+        context,
+        llmProviderManager,
+        contextSignalManager,
+        userMemoryDao,
+        ariaPreferences,
+        ariaChatHandler,
+    )
 }
