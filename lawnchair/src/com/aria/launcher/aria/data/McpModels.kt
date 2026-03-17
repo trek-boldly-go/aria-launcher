@@ -1,14 +1,18 @@
 // Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
 package com.aria.launcher.aria.data
 
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+
 /**
- * MCP entity stubs — defined now for schema planning, NOT added to
- * AriaDatabase until MCP is implemented in Phase 8.
+ * MCP entity stubs — entity annotations are present for schema planning,
+ * but these classes are NOT added to AriaDatabase until Phase 8.
  */
 
 /** A discovered MCP server instance. */
+@Entity(tableName = "mcp_servers")
 data class McpServer(
-    val id: String,
+    @PrimaryKey val id: String,
     val serverName: String,
     val endpoint: String,
     val transportType: McpTransport,
@@ -16,12 +20,14 @@ data class McpServer(
     val lastChecked: Long,
     val lastSuccessfulCall: Long?,
     val requiresAuth: Boolean,
+    val authToken: String?,
     val networkScope: NetworkScope,
 )
 
 /** Cached tool manifest for a server. */
+@Entity(tableName = "mcp_capabilities")
 data class McpCapability(
-    val id: String,
+    @PrimaryKey val id: String,
     val serverId: String,
     val toolName: String,
     val description: String,
@@ -32,8 +38,9 @@ data class McpCapability(
 )
 
 /** Execution log for debugging and rule trigger counts. */
+@Entity(tableName = "mcp_executions")
 data class McpExecution(
-    val id: Long = 0,
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val serverId: String,
     val toolName: String,
     val inputJson: String,

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
 package com.aria.launcher.aria.engine
 
+import com.aria.launcher.aria.engine.rules.RuleAction
 import com.aria.launcher.aria.ui.brief.BriefItem
 
 /**
@@ -33,5 +34,6 @@ interface AriaSkill {
 
 data class AriaSkillResult(
     val briefItems: List<BriefItem>,
+    val actions: List<RuleAction>,
     val summary: String,
 )

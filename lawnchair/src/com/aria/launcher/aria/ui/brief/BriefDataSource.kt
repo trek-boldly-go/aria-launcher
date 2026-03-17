@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
 package com.aria.launcher.aria.ui.brief
 
+import com.aria.launcher.aria.data.NetworkScope
 import com.aria.launcher.aria.engine.AriaContext
 
 /**
@@ -21,6 +22,10 @@ interface BriefDataSource {
     /** Whether this source requires network access. */
     val requiresNetwork: Boolean
         get() = false
+
+    /** Network scope required by this source. */
+    val networkScope: NetworkScope
+        get() = NetworkScope.ANY
 
     /**
      * Fetch candidate BriefItems for the given context.
