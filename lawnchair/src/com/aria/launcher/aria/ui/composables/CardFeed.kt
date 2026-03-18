@@ -126,7 +126,7 @@ fun CardFeed(
 }
 
 @Composable
-private fun ChatPill(onClick: () -> Unit) {
+internal fun ChatPill(onClick: () -> Unit) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseAlpha by infiniteTransition.animateFloat(
         initialValue = 0.4f,

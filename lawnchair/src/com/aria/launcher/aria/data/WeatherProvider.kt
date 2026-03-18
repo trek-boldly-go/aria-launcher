@@ -32,6 +32,7 @@ class WeatherProvider @Inject constructor(
     @ApplicationContext private val context: Context,
     @AriaLlmClient private val httpClient: OkHttpClient,
     private val json: Json,
+    private val ariaPreferences: AriaPreferences,
 ) {
     private var cached: WeatherSnapshot? = null
     private var cacheTimestamp: Long = 0L
@@ -124,6 +125,28 @@ class WeatherProvider @Inject constructor(
     }
 
     private fun getLocation(): Pair<Double, Double>? {
+        // Try GPS first; cache successful result as fallback
+        getGpsLocation()?.let { (lat, lng) ->
+            try {
+                kotlinx.coroutines.runBlocking {
+                    ariaPreferences.setDefaultLocation(lat, lng)
+                }
+            } catch (_: Exception) { }
+            return lat to lng
+        }
+        // Fallback: use last cached or manually-set location
+        return try {
+            kotlinx.coroutines.runBlocking {
+                val lat = ariaPreferences.getDefaultLatitude() ?: return@runBlocking null
+                val lng = ariaPreferences.getDefaultLongitude() ?: return@runBlocking null
+                lat to lng
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun getGpsLocation(): Pair<Double, Double>? {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION)

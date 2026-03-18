@@ -30,6 +30,7 @@ import app.lawnchair.util.ProvideLifecycleState
 import com.aria.launcher.aria.chat.ChatState
 import com.aria.launcher.aria.chat.composables.ChatSheet
 import com.aria.launcher.aria.ui.brief.composables.AriaBrief
+import com.aria.launcher.aria.ui.composables.ChatPill
 import com.aria.launcher.aria.ui.composables.PredictedAppsRow
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -121,6 +122,10 @@ private fun AriaPanelContent(
         verticalArrangement = Arrangement.Top,
     ) {
         Spacer(modifier = Modifier.height(8.dp))
+
+        ChatPill(onClick = { showChat = true })
+
+        Spacer(modifier = Modifier.height(12.dp))
 
         AriaBrief(
             items = briefItems,

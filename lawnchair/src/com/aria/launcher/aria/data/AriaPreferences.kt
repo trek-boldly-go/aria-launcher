@@ -95,6 +95,17 @@ class AriaPreferences @Inject constructor(
         context.ariaPrefsStore.edit { it[KEY_MEMORY_ENABLED] = enabled }
     }
 
+    suspend fun getDefaultLatitude(): Double? = context.ariaPrefsStore.data.first()[KEY_DEFAULT_LAT]?.toDoubleOrNull()
+
+    suspend fun getDefaultLongitude(): Double? = context.ariaPrefsStore.data.first()[KEY_DEFAULT_LNG]?.toDoubleOrNull()
+
+    suspend fun setDefaultLocation(lat: Double, lng: Double) {
+        context.ariaPrefsStore.edit {
+            it[KEY_DEFAULT_LAT] = lat.toString()
+            it[KEY_DEFAULT_LNG] = lng.toString()
+        }
+    }
+
     suspend fun isBootstrapDone(): Boolean = context.ariaPrefsStore.data.first()[KEY_BOOTSTRAP_DONE] ?: false
 
     suspend fun setBootstrapDone() {
@@ -114,6 +125,8 @@ class AriaPreferences @Inject constructor(
         private val KEY_CHAT_TIMEOUT_MINUTES = intPreferencesKey("chat_timeout_minutes")
         private val KEY_CHAT_LAST_INTERACTION = longPreferencesKey("chat_last_interaction")
         private val KEY_MEMORY_ENABLED = booleanPreferencesKey("memory_enabled")
+        private val KEY_DEFAULT_LAT = stringPreferencesKey("default_latitude")
+        private val KEY_DEFAULT_LNG = stringPreferencesKey("default_longitude")
         private val KEY_BOOTSTRAP_DONE = booleanPreferencesKey("bootstrap_done")
     }
 }

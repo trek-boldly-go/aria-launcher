@@ -504,6 +504,7 @@ dependencies {
     implementation libs.okhttp.sse
     implementation libs.play.services.code.scanner
     implementation libs.litert // LiteRT (16KB-aligned TFLite replacement) — seam for Session 14 on-device model
+    implementation libs.litertlm.android // LiteRT-LM: on-device LLM inference (Session 15)
 
     implementation libs.google.guava
 

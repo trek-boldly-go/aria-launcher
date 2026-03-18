@@ -14,6 +14,7 @@ import com.aria.launcher.aria.data.AppChainDao
 import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.engine.AppChainDetector
 import com.aria.launcher.aria.engine.PredictionEngine
+import com.aria.launcher.aria.llm.LiteRtLmProvider
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.Calendar
@@ -38,6 +39,7 @@ class NightlyPredictionWorker @AssistedInject constructor(
     private val ariaPreferences: AriaPreferences,
     private val appChainDetector: AppChainDetector,
     private val appChainDao: AppChainDao,
+    private val liteRtLmProvider: LiteRtLmProvider,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -64,6 +66,11 @@ class NightlyPredictionWorker @AssistedInject constructor(
                 appChainDao.upsertAll(chains)
                 Log.d(TAG, "Stored ${chains.size} app chains")
             }
+
+            // Warm up on-device LLM engine during charging window — no-op if
+            // model not downloaded or already warm
+            liteRtLmProvider.warmUp()
+
             Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "NightlyPredictionWorker failed (attempt $runAttemptCount)", e)

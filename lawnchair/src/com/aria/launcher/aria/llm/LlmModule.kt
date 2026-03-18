@@ -39,9 +39,22 @@ object LlmModule {
 
     @Provides
     @Singleton
+    fun provideLiteRtModelManager(
+        @ApplicationContext context: Context,
+    ): LiteRtModelManager = LiteRtModelManager(context)
+
+    @Provides
+    @Singleton
+    fun provideLiteRtLmProvider(
+        modelManager: LiteRtModelManager,
+    ): LiteRtLmProvider = LiteRtLmProvider(modelManager)
+
+    @Provides
+    @Singleton
     fun provideLlmProviderManager(
         @ApplicationContext context: Context,
         @AriaLlmClient client: OkHttpClient,
         json: Json,
-    ): LlmProviderManager = LlmProviderManager(context, client, json)
+        liteRtLmProvider: LiteRtLmProvider,
+    ): LlmProviderManager = LlmProviderManager(context, client, json, liteRtLmProvider)
 }

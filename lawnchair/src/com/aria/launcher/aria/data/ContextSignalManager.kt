@@ -50,7 +50,7 @@ class ContextSignalManager @Inject constructor(
     fun init() {
         _isCharging.value = readChargingState()
         _wifiSsid.value = readWifiSsid()
-        _isAndroidAutoConnected.value = AndroidAutoReceiver.lastConnected
+        _isAndroidAutoConnected.value = AndroidAutoReceiver.isCurrentlyInCarMode(context)
         _connectedCarName.value = AndroidAutoReceiver.lastCarName
         registerActivityRecognition()
         registerWifiListener()

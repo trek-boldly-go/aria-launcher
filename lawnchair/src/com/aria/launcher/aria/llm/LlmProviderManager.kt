@@ -26,6 +26,7 @@ enum class ProviderType {
     OLLAMA,
     OPENAI_COMPATIBLE,
     OPEN_ROUTER,
+    LITERT,
 }
 
 @Singleton
@@ -33,6 +34,7 @@ class LlmProviderManager @Inject constructor(
     private val context: Context,
     private val client: OkHttpClient,
     private val json: Json,
+    private val liteRtLmProvider: LiteRtLmProvider,
 ) {
     private var cachedProvider: LlmProvider? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -55,6 +57,14 @@ class LlmProviderManager @Inject constructor(
         refreshToken: String? = null,
     ) {
         context.llmPrefsStore.edit { prefs ->
+            // When switching to LITERT, save the current remote provider as fallback
+            if (type == ProviderType.LITERT) {
+                prefs[KEY_PROVIDER_TYPE]?.let { current ->
+                    if (current != ProviderType.LITERT.name) {
+                        prefs[KEY_FALLBACK_PROVIDER] = current
+                    }
+                }
+            }
             prefs[KEY_PROVIDER_TYPE] = type.name
             apiKey?.let { prefs[KEY_API_KEY] = it }
             serverUrl?.let { prefs[KEY_SERVER_URL] = it }
@@ -140,6 +150,24 @@ class LlmProviderManager @Inject constructor(
                 apiKey = apiKey,
                 modelId = modelId ?: "anthropic/claude-sonnet-4",
             )
+
+            ProviderType.LITERT -> {
+                if (liteRtLmProvider.isReady()) {
+                    liteRtLmProvider
+                } else {
+                    // Silent fallback: if the on-device engine isn't warm, use the
+                    // previously configured remote provider (if any). Never show an error.
+                    Log.w(TAG, "LiteRT not ready, falling back to previous remote provider")
+                    val fallbackType = prefs[KEY_FALLBACK_PROVIDER]?.let {
+                        runCatching { ProviderType.valueOf(it) }.getOrNull()
+                    }
+                    if (fallbackType != null && fallbackType != ProviderType.LITERT) {
+                        createProvider(fallbackType, prefs)
+                    } else {
+                        null
+                    }
+                }
+            }
         }
     }
 
@@ -150,5 +178,6 @@ class LlmProviderManager @Inject constructor(
         private val KEY_SERVER_URL = stringPreferencesKey("server_url")
         private val KEY_MODEL_ID = stringPreferencesKey("model_id")
         private val KEY_REFRESH_TOKEN = stringPreferencesKey("refresh_token")
+        private val KEY_FALLBACK_PROVIDER = stringPreferencesKey("fallback_provider")
     }
 }

@@ -84,24 +84,26 @@ No app grid. No Google search bar. No static widgets. No folder grid.
 - Settings screen addition: "On-device model" section (download status + model selector)
 - `lawnchair/AndroidManifest.xml` — GPU native lib dependency declaration
 
-**Gradle dependencies** (verify exact coordinates on Google Maven before adding):
+**Gradle dependencies** (verified on Google Maven 2026-03-17):
 ```toml
 # gradle/libs.versions.toml
-litert-lm = "0.1.0"       # com.google.ai.edge.litert:litert-lm
-litert-gpu = "1.4.0"      # com.google.ai.edge.litert:litert-gpu-jni (GPU backend)
+litertlm = "0.9.0-beta"   # com.google.ai.edge.litertlm:litertlm-android (GPU bundled)
 ```
-Check https://maven.google.com for the latest `com.google.ai.edge.litert` coordinates before coding.
+No separate GPU dependency needed — `litertlm-android` bundles CPU, GPU, and NPU backends.
 
 ---
 
 ## Spec: LiteRT-LM Overview
 
-LiteRT-LM is Google's on-device LLM inference SDK (Kotlin API marked Stable).
+LiteRT-LM is Google's on-device LLM inference SDK (Kotlin API). Package: `com.google.ai.edge.litertlm`.
 
-- **Engine** — one-time init per model file, must run on a background thread (~10s startup)
-- **Conversation** — message exchange; returns `Flow<String>` (recommended for coroutines)
-- **Backends**: CPU (all devices), GPU (most Android), NPU (Qualcomm/MediaTek)
-- **Tool use**: `@Tool`/`@ToolParam` annotations OR OpenAPI spec
+- **Engine** — `Engine(EngineConfig)` + `engine.initialize()`, must run on a background thread (~10s startup)
+- **EngineConfig** — `EngineConfig(modelPath, backend, cacheDir?)`
+- **Backend** — `Backend.CPU()`, `Backend.GPU()`, `Backend.NPU(nativeLibraryDir)`
+- **Conversation** — `engine.createConversation(ConversationConfig)`, `sendMessage()` (sync) / `sendMessageAsync()` → `Flow<Message>` (streaming)
+- **ConversationConfig** — `ConversationConfig(systemInstruction: Contents?, tools?, automaticToolCalling?)`
+- **Content types** — `Content.Text(String)`, `Content.ImageFile(String)`, `Content.AudioFile(String)`, wrapped in `Contents.of(...)`
+- **Tool use**: `@Tool`/`@ToolParam` annotations on `ToolSet` classes, OR OpenAPI spec
 - **Models**: Gemma3-1B (~1 GB), Gemma3-4B (~4 GB), Phi, Qwen — `.litertlm` format
 - **Performance**: Gemma3-1B → 1,876 tok/s GPU on Samsung S24 Ultra
 - Both `Engine` and `Conversation` implement `AutoCloseable`
@@ -140,7 +142,7 @@ Model download is handled by `ModelDownloadWorker` (separate from inference). Ne
 ```kotlin
 @Singleton
 class LiteRtLmProvider @Inject constructor(
-    private val modelManager: LiteRtModelManager
+    private val modelManager: LiteRtModelManager,
 ) : LlmProvider {
 
     private var engine: Engine? = null
@@ -149,49 +151,56 @@ class LiteRtLmProvider @Inject constructor(
     // Engine init can take up to 10 seconds; keep alive as singleton
     suspend fun warmUp() = withContext(Dispatchers.IO) {
         if (!modelManager.isModelDownloaded() || engine != null) return@withContext
-        engine = Engine.createFromFile(modelManager.modelPath)
-        engine!!.initialize()
+        val config = EngineConfig(
+            modelPath = modelManager.modelPath,
+            backend = Backend.GPU(),
+        )
+        val eng = Engine(config)
+        eng.initialize()
+        engine = eng
     }
 
     fun isReady(): Boolean = engine != null
 
     override suspend fun complete(
         systemPrompt: String,
-        messages: List<ChatMessage>
-    ): String = withContext(Dispatchers.IO) {
-        val eng = engine ?: error("LiteRT engine not initialized — call warmUp() first")
-        val config = ConversationConfig(systemInstructions = systemPrompt)
+        messages: List<ChatMessage>,
+        maxTokens: Int,
+    ): LlmResult = withContext(Dispatchers.IO) {
+        val eng = engine ?: return@withContext LlmResult.Error("LiteRT engine not initialized")
+        val config = ConversationConfig(
+            systemInstruction = Contents.of(Content.Text(systemPrompt)),
+        )
         eng.createConversation(config).use { conv ->
-            val sb = StringBuilder()
-            val latch = kotlinx.coroutines.CompletableDeferred<Unit>()
-            conv.sendMessageAsync(messages.last().content, object : MessageCallback {
-                override fun onPartialResponse(text: String) { sb.append(text) }
-                override fun onCompleted(response: GenerationResult) { latch.complete(Unit) }
-                override fun onError(error: Throwable) { latch.completeExceptionally(error) }
-            })
-            latch.await()
-            sb.toString()
+            val response = conv.sendMessage(Contents.of(Content.Text(messages.last().content)))
+            LlmResult.Text(response.text ?: "")
         }
     }
 
     override fun streamComplete(
         systemPrompt: String,
-        messages: List<ChatMessage>
+        messages: List<ChatMessage>,
+        maxTokens: Int,
     ): Flow<String> = flow {
         val eng = engine ?: error("LiteRT engine not initialized")
-        val config = ConversationConfig(systemInstructions = systemPrompt)
+        val config = ConversationConfig(
+            systemInstruction = Contents.of(Content.Text(systemPrompt)),
+        )
         eng.createConversation(config).use { conv ->
-            conv.sendMessageAsFlow(messages.last().content).collect { emit(it) }
+            conv.sendMessageAsync(Contents.of(Content.Text(messages.last().content)))
+                .map { message -> message.text ?: "" }
+                .collect { emit(it) }
         }
     }.flowOn(Dispatchers.IO)
 
-    // completeWithTools: use LiteRT-LM @Tool annotations or OpenAPI spec
-    // For now, delegate to complete() with tool definitions embedded in systemPrompt
+    // completeWithTools: LiteRT-LM supports @Tool annotations and OpenAPI spec natively.
+    // For now, delegate to complete() with tool definitions in systemPrompt.
     override suspend fun completeWithTools(
         systemPrompt: String,
         messages: List<ChatMessage>,
-        tools: List<ToolDefinition>
-    ): LlmResult = LlmResult.Text(complete(systemPrompt, messages))
+        tools: List<ToolDefinition>,
+        maxTokens: Int,
+    ): LlmResult = complete(systemPrompt, messages, maxTokens)
 }
 ```
 
@@ -245,12 +254,12 @@ class ModelDownloadWorker(
 Add `LITERT` to the provider enum and route through `LiteRtLmProvider` when selected:
 
 ```kotlin
-enum class LlmProviderType {
-    CLAUDE, OLLAMA, OPENAI_COMPATIBLE, GEMINI, LITERT
+enum class ProviderType {
+    CLAUDE_API_KEY, CLAUDE_OAUTH, GEMINI, OLLAMA, OPENAI_COMPATIBLE, OPEN_ROUTER, LITERT
 }
 ```
 
-In `LlmProviderManager.getActiveProvider()`: if `LITERT` selected but `!liteRtProvider.isReady()`, fall back to the previously configured remote provider and log a warning. Never show an error to the user — silent fallback only.
+In `LlmProviderManager.createProvider()`: if `LITERT` selected but `!liteRtProvider.isReady()`, fall back to the previously configured remote provider (stored in `fallback_provider` DataStore key) and log a warning. When switching to LITERT, the current provider is automatically saved as fallback. Never show an error to the user — silent fallback only.
 
 ---
 

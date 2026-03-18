@@ -36,9 +36,12 @@ import com.aria.launcher.aria.data.AriaNotificationListener
 import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.data.SkillDao
 import com.aria.launcher.aria.data.UsageDataRepository
+import com.aria.launcher.aria.llm.LiteRtLmProvider
+import com.aria.launcher.aria.llm.LiteRtModelManager
 import com.aria.launcher.aria.llm.LlmProviderManager
 import com.aria.launcher.aria.llm.LlmResult
 import com.aria.launcher.aria.llm.ProviderType
+import com.aria.launcher.aria.scheduler.ModelDownloadWorker
 import com.aria.launcher.aria.ui.AriaHomeState
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -56,6 +59,8 @@ import kotlinx.coroutines.withContext
 private interface AriaSettingsEntryPoint {
     fun ariaPreferences(): AriaPreferences
     fun llmProviderManager(): LlmProviderManager
+    fun liteRtModelManager(): LiteRtModelManager
+    fun liteRtLmProvider(): LiteRtLmProvider
     fun skillDao(): SkillDao
     fun usageDataRepository(): UsageDataRepository
     fun ariaHomeState(): AriaHomeState
@@ -250,6 +255,78 @@ fun AriaSettingsPreferences(
                         }
                     },
                 )
+            }
+        }
+
+        PreferenceGroup(heading = "On-device Model") {
+            val modelManager = entryPoint.liteRtModelManager()
+            val liteRtProvider = entryPoint.liteRtLmProvider()
+            val modelDownloaded = remember { modelManager.isModelDownloaded() }
+            val engineReady = remember { liteRtProvider.isReady() }
+
+            val modelStatus = when {
+                engineReady -> "Ready (Gemma3-1B)"
+                modelDownloaded -> "Downloaded \u2014 warming up at next charge"
+                else -> "Not downloaded"
+            }
+
+            Item {
+                ClickablePreference(
+                    label = "On-device LLM",
+                    subtitle = modelStatus,
+                    onClick = {},
+                )
+            }
+            if (!modelDownloaded) {
+                Item {
+                    ClickablePreference(
+                        label = "Download on-device model",
+                        subtitle = "~1 GB \u00b7 Wi-Fi + charging required \u00b7 No internet needed after download",
+                        onClick = {
+                            ModelDownloadWorker.enqueue(context)
+                            Toast.makeText(
+                                context,
+                                "Download queued \u2014 will start on Wi-Fi + charging",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        },
+                    )
+                }
+                Item {
+                    ClickablePreference(
+                        label = "Download now",
+                        subtitle = "Skip Wi-Fi/charging requirement \u2014 uses ~1 GB of data",
+                        confirmationText = "This will download ~1 GB over your current connection " +
+                            "without waiting for Wi-Fi or charging. " +
+                            "This may use mobile data and drain battery.",
+                        onClick = {
+                            ModelDownloadWorker.enqueue(context, bypassConstraints = true)
+                            Toast.makeText(
+                                context,
+                                "Download starting now",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        },
+                    )
+                }
+            }
+            if (modelDownloaded && providerType != ProviderType.LITERT) {
+                Item {
+                    ClickablePreference(
+                        label = "Switch to on-device",
+                        subtitle = "Use Gemma3-1B for all inference \u2014 fully offline",
+                        onClick = {
+                            scope.launch {
+                                withContext(Dispatchers.IO) {
+                                    entryPoint.llmProviderManager().configureProvider(
+                                        type = ProviderType.LITERT,
+                                    )
+                                }
+                                Toast.makeText(context, "Switched to on-device LLM", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    )
+                }
             }
         }
 

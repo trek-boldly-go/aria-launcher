@@ -265,6 +265,16 @@ class AriaHomeState @Inject constructor(
                 .collectLatest { context -> refreshBrief(context) }
         }
 
+        // Ensure Brief populates on first launch even if context monitor
+        // already emitted before the collector was ready
+        scope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(2000)
+            val ctx = contextMonitor.contextChanges.value
+            if (ctx != null && _briefItems.value.isEmpty()) {
+                refreshBrief(ctx)
+            }
+        }
+
         scope.launch(Dispatchers.IO) {
             cachedHomeWifi = ariaPreferences.getHomeWifiSsid()
             cachedWorkWifi = ariaPreferences.getWorkWifiSsid()
