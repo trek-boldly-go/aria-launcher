@@ -82,6 +82,12 @@ class ContextSignalManager @Inject constructor(
         _wifiSsid.value = readWifiSsid()
     }
 
+    /** Debug: override the WiFi SSID with a fake value for testing venue classification. */
+    fun debugOverrideSsid(ssid: String?) {
+        _wifiSsid.value = ssid
+        Log.d(TAG, "Debug SSID override: $ssid")
+    }
+
     /** Snapshot for attaching to a usage event. */
     fun snapshot() = ContextSnapshot(
         isCharging = _isCharging.value,

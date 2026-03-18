@@ -43,8 +43,11 @@ class AriaRuleEvaluator @Inject constructor(
                 val ssid = context.wifiSsid ?: return false
                 when (trigger.matchType) {
                     MatchType.EXACT -> ssid.equals(trigger.pattern, ignoreCase = true)
+
                     MatchType.CONTAINS -> ssid.contains(trigger.pattern, ignoreCase = true)
+
                     MatchType.STARTS_WITH -> ssid.startsWith(trigger.pattern, ignoreCase = true)
+
                     MatchType.REGEX -> Regex(trigger.pattern, setOf(RegexOption.IGNORE_CASE))
                         .containsMatchIn(ssid)
                 }
@@ -83,8 +86,10 @@ class AriaRuleEvaluator @Inject constructor(
 
             is RuleTrigger.AndroidAutoTrigger ->
                 context.isAndroidAutoConnected &&
-                    (trigger.connectedCarName == null ||
-                        trigger.connectedCarName == context.connectedCarName)
+                    (
+                        trigger.connectedCarName == null ||
+                            trigger.connectedCarName == context.connectedCarName
+                        )
 
             is RuleTrigger.CompoundTrigger -> when (trigger.operator) {
                 LogicOperator.AND -> trigger.triggers.all { matches(it, context) }

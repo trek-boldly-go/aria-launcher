@@ -13,6 +13,7 @@ import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.data.SkillResult
 import com.aria.launcher.aria.data.UsageDataRepository
 import com.aria.launcher.aria.data.UsageStatsCollector
+import com.aria.launcher.aria.data.WeatherProvider
 import com.aria.launcher.aria.engine.AriaContext
 import com.aria.launcher.aria.engine.AriaContextMonitor
 import com.aria.launcher.aria.engine.ContextKey
@@ -73,6 +74,7 @@ class AriaHomeState @Inject constructor(
     private val contextMonitor: AriaContextMonitor,
     private val appChainDao: AppChainDao,
     private val predictionBlender: PredictionBlender,
+    private val weatherProvider: WeatherProvider,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val pm: PackageManager = appContext.packageManager
@@ -81,6 +83,7 @@ class AriaHomeState @Inject constructor(
     private val _contextKey = MutableStateFlow(currentContextKey())
 
     // Chains triggered by the last foreground app — refreshed on each context refresh
+    @Suppress("ktlint:standard:backing-property-naming")
     private val _activeChains = MutableStateFlow<List<AppChain>>(emptyList())
 
     // Brief state — driven by AriaContextMonitor context changes
@@ -187,18 +190,17 @@ class AriaHomeState @Inject constructor(
     }
 
     /** Convert ShowCard rule actions in [context.firedRules] into ProactiveSuggestion items. */
-    private fun ruleActionsToCards(context: AriaContext): List<BriefItem.ProactiveSuggestion> =
-        context.firedRules.mapNotNull { fired ->
-            val action = fired.action as? RuleAction.ShowCard ?: return@mapNotNull null
-            BriefItem.ProactiveSuggestion(
-                headline = action.headline,
-                rationale = action.subtext ?: "",
-                action = BriefAction(
-                    label = "Open",
-                    intentUri = action.intentUri,
-                ),
-            )
-        }
+    private fun ruleActionsToCards(context: AriaContext): List<BriefItem.ProactiveSuggestion> = context.firedRules.mapNotNull { fired ->
+        val action = fired.action as? RuleAction.ShowCard ?: return@mapNotNull null
+        BriefItem.ProactiveSuggestion(
+            headline = action.headline,
+            rationale = action.subtext ?: "",
+            action = BriefAction(
+                label = "Open",
+                intentUri = action.intentUri,
+            ),
+        )
+    }
 
     /** Remove a dismissible item from the Brief for this session. */
     fun dismissItem(item: BriefItem) {
@@ -222,16 +224,17 @@ class AriaHomeState @Inject constructor(
         }
     }
 
-    private fun buildContextBar(context: AriaContext): BriefItem.ContextBar {
+    private suspend fun buildContextBar(context: AriaContext): BriefItem.ContextBar {
         val locationHint = when (context.contextKey.location) {
             LocationHint.HOME -> "Home"
             LocationHint.WORK -> "Work"
             LocationHint.COMMUTE -> "Commute"
             LocationHint.UNKNOWN -> null
         }
-        // Use the active weather forecast result (if any) as the context line
-        val weatherResult = skillResults.value.firstOrNull { it.skillId == "weather.forecast" }
-        val weatherLine = weatherResult?.title ?: ""
+
+        // Use dedicated WeatherProvider for reliable, cached weather data
+        val snapshot = weatherProvider.getWeather()
+        val weatherLine = snapshot?.toWeatherLine() ?: ""
         val alertCount = skillResults.value.count { it.skillId == "weather.alerts" }
 
         return BriefItem.ContextBar(
@@ -327,12 +330,6 @@ class AriaHomeState @Inject constructor(
         )
     }
 
-    /**
-     * Apply SurfaceApp and SuppressApp rule actions to the raw prediction list.
-     * - SuppressApp: removes the package entirely.
-     * - SurfaceApp(ALWAYS_SHOW/BOOST): boosts score so it rises to the top.
-     * - SurfaceApp(PIN_TO_DOCK): treated as ALWAYS_SHOW boost (dock pinning is a future seam).
-     */
     /**
      * Applies a chain boost to follow-up apps for the currently-active trigger.
      * The boost is proportional to the chain's observed occurrences.

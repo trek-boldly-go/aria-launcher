@@ -27,10 +27,9 @@ class SkillBridgeSource @Inject constructor(
 
     override val sourceId = "skill_bridge"
 
-    override suspend fun fetchItems(context: AriaContext): List<BriefItem> =
-        skillDao.getActiveResults()
-            .filter { it.skillId !in WEATHER_SKILL_IDS }
-            .map { it.toBriefItem() }
+    override suspend fun fetchItems(context: AriaContext): List<BriefItem> = skillDao.getActiveResults()
+        .filter { it.skillId !in WEATHER_SKILL_IDS }
+        .map { it.toBriefItem() }
 
     private fun SkillResult.toBriefItem(): BriefItem.ProactiveSuggestion {
         val firstAction = runCatching {

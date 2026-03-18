@@ -91,7 +91,7 @@ No app grid. No Google search bar. No static widgets. No folder grid.
 - WorkManager with `setRequiresCharging(true)` defers if not charging — this is **correct behavior**, not a bug. Don't fight it.
 - Daytime prediction path is purely a Room read — must be < 5ms, no ML inference.
 - Stream LLM responses token-by-token — never make user wait for full response.
-- Ollama: when away from home on mobile data, fall back to Claude or Gemini.
+- Ollama: when away from home on mobile data, fall back to Claude or Gemini if the Ollama url is not a public IP or domain.
 - Widget hosting requires `BIND_APPWIDGET` + system dialog — explain during onboarding.
 
 ---

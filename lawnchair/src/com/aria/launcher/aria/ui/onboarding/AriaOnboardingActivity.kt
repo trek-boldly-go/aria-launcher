@@ -65,6 +65,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private const val TOTAL_ONBOARDING_PAGES = 7
+
 class AriaOnboardingActivity : ComponentActivity() {
 
     @EntryPoint
@@ -214,7 +216,6 @@ class AriaOnboardingActivity : ComponentActivity() {
     companion object {
         const val PREFS_NAME = "aria_onboarding"
         const val KEY_ONBOARDING_COMPLETE = "onboarding_complete"
-        private const val TOTAL_PAGES = 6
 
         fun isOnboardingComplete(context: Context): Boolean {
             return context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -294,7 +295,9 @@ private fun OnboardingWizard(
                     onWorkWifiChanged = onWorkWifiChanged,
                 )
 
-                5 -> ReadyPage()
+                5 -> RuleTutorialPage()
+
+                6 -> ReadyPage()
             }
         }
 
@@ -302,7 +305,7 @@ private fun OnboardingWizard(
         Column(
             modifier = Modifier.padding(horizontal = 28.dp, vertical = 20.dp),
         ) {
-            PageIndicator(pageCount = 6, currentPage = currentPage)
+            PageIndicator(pageCount = TOTAL_ONBOARDING_PAGES, currentPage = currentPage)
             Spacer(modifier = Modifier.height(20.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -320,7 +323,7 @@ private fun OnboardingWizard(
                     Spacer(modifier = Modifier)
                 }
 
-                if (currentPage < 5) {
+                if (currentPage < TOTAL_ONBOARDING_PAGES - 1) {
                     Button(
                         onClick = { onPageChange(currentPage + 1) },
                         shapes = ButtonDefaults.shapes(),

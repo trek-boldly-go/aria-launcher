@@ -67,11 +67,9 @@ class AriaChatHandler @Inject constructor(
         Regex("my rules", RegexOption.IGNORE_CASE),
     )
 
-    fun isRuleCreationIntent(input: String): Boolean =
-        ruleIntentPatterns.any { it.containsMatchIn(input) }
+    fun isRuleCreationIntent(input: String): Boolean = ruleIntentPatterns.any { it.containsMatchIn(input) }
 
-    fun isShowRulesIntent(input: String): Boolean =
-        showRulesPatterns.any { it.containsMatchIn(input) }
+    fun isShowRulesIntent(input: String): Boolean = showRulesPatterns.any { it.containsMatchIn(input) }
 
     /**
      * Handle a rule creation request. Returns a [ChatResponse] with a confirmation

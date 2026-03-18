@@ -24,7 +24,10 @@ import kotlinx.serialization.json.jsonPrimitive
 class AriaRuleCompiler @Inject constructor(
     private val llmProviderManager: LlmProviderManager,
 ) {
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
     suspend fun compile(userInput: String): RuleCompilationResult {
         val provider = llmProviderManager.getProvider()
@@ -38,9 +41,11 @@ class AriaRuleCompiler @Inject constructor(
 
         val responseText = when (result) {
             is LlmResult.Text -> result.content
+
             is LlmResult.Error -> return RuleCompilationResult.ParseError(
                 "LLM error: ${result.message}",
             )
+
             else -> return RuleCompilationResult.ParseError("Unexpected LLM response type.")
         }
 
@@ -152,8 +157,7 @@ class AriaRuleCompiler @Inject constructor(
 }
 
 sealed class RuleCompilationResult {
-    data class Success(val rule: AriaRule, val humanReadableSummary: String) :
-        RuleCompilationResult()
+    data class Success(val rule: AriaRule, val humanReadableSummary: String) : RuleCompilationResult()
 
     data class NeedsClarification(val question: String) : RuleCompilationResult()
 

@@ -59,7 +59,6 @@ import app.lawnchair.ui.preferences.data.liveinfo.SyncLiveInformation
 import app.lawnchair.ui.preferences.navigation.About
 import app.lawnchair.ui.preferences.navigation.AppDrawer
 import app.lawnchair.ui.preferences.navigation.AriaDebug
-import app.lawnchair.ui.preferences.navigation.AriaRules
 import app.lawnchair.ui.preferences.navigation.AriaSettings
 import app.lawnchair.ui.preferences.navigation.BackupAndRestore
 import app.lawnchair.ui.preferences.navigation.CreateBackup
@@ -248,8 +247,8 @@ fun PreferencesDashboard(
             Item {
                 PreferenceCategory(
                     label = "ARIA",
-                    description = "AI provider, WiFi labels, skills, and layout",
-                    iconResource = R.drawable.ic_smartspace,
+                    description = "AI provider setup, WiFi labels, and layout",
+                    iconResource = R.drawable.ic_lightbulb,
                     onNavigate = { onNavigate(AriaSettings) },
                     isSelected = currentRoute is AriaSettings,
                     isFirst = it.isFirst,
@@ -259,21 +258,9 @@ fun PreferencesDashboard(
 
             Item {
                 PreferenceCategory(
-                    label = "ARIA Rules",
-                    description = "Manage rules created from chat",
-                    iconResource = R.drawable.ic_smartspace,
-                    onNavigate = { onNavigate(AriaRules) },
-                    isSelected = currentRoute is AriaRules,
-                    isFirst = it.isFirst,
-                    isLast = it.isLast,
-                )
-            }
-
-            Item {
-                PreferenceCategory(
                     label = "ARIA Debug",
                     description = "Prediction engine and data tools",
-                    iconResource = R.drawable.ic_smartspace,
+                    iconResource = R.drawable.ic_bug_notification,
                     onNavigate = { onNavigate(AriaDebug) },
                     isSelected = currentRoute is AriaDebug,
                     isFirst = it.isFirst,
