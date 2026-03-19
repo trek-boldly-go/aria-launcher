@@ -26,7 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.aria.launcher.aria.data.SkillAction
 import com.google.accompanist.drawablepainter.rememberDrawablePainter
 
@@ -73,8 +72,6 @@ fun SkillCard(
                     text = title,
                     style = MaterialTheme.typography.labelLarge.copy(
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp,
-                        letterSpacing = 0.2.sp,
                     ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -88,9 +85,7 @@ fun SkillCard(
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = body,
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        lineHeight = 20.sp,
-                    ),
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
@@ -111,8 +106,9 @@ fun SkillCard(
                         ) {
                             Text(
                                 text = action.label,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.Medium,
+                                ),
                             )
                         }
                     }

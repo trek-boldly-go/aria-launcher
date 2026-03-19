@@ -32,6 +32,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -96,6 +97,7 @@ class AriaHomeState @Inject constructor(
     // Track dismissed item keys for the current session
     private val dismissedKeys = mutableSetOf<String>()
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     val predictedApps: StateFlow<List<PredictedApp>> = _contextKey
         .map { it.toStringKey() }
         .flatMapLatest { key ->

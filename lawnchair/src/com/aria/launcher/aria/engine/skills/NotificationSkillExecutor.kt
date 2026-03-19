@@ -2,6 +2,7 @@
 package com.aria.launcher.aria.engine.skills
 
 import com.aria.launcher.aria.data.AppSkill
+import com.aria.launcher.aria.data.AriaNotification
 import com.aria.launcher.aria.data.AriaNotificationListener
 import com.aria.launcher.aria.data.SkillAction
 import com.aria.launcher.aria.data.SkillResult
@@ -61,6 +62,8 @@ class NotificationSkillExecutor(
 
     private fun executeUnreadMessages(skill: AppSkill): SkillResult? {
         val notifications = AriaNotificationListener.getNotificationsForPackage(skill.appPackage)
+            // Only include actual messages, not system/maintenance notifications
+            .filter { it.category == "msg" || it.category == null && it.isActualMessage() }
         if (notifications.isEmpty()) return null
 
         val count = notifications.size
@@ -91,6 +94,15 @@ class NotificationSkillExecutor(
         )
     }
 
+    /**
+     * Heuristic: a notification without CATEGORY_MESSAGE might still be a real message
+     * if it doesn't match known low-value patterns (device pairing, RCS, backup, etc.).
+     */
+    private fun AriaNotification.isActualMessage(): Boolean {
+        val combined = "${title.orEmpty()} ${text.orEmpty()}".lowercase()
+        return LOW_VALUE_PATTERNS.none { it in combined } && !isOngoing
+    }
+
     private fun executeNowPlaying(skill: AppSkill): SkillResult? {
         val notifications = AriaNotificationListener.getNotificationsForPackage(skill.appPackage)
         val mediaNotification = notifications.find {
@@ -112,6 +124,23 @@ class NotificationSkillExecutor(
             priority = 0.3f,
             timestamp = System.currentTimeMillis(),
             expiresAt = System.currentTimeMillis() + skill.refreshIntervalMin * 60 * 1000L,
+        )
+    }
+
+    companion object {
+        /** Notification title/text substrings that indicate system noise, not real messages. */
+        private val LOW_VALUE_PATTERNS = listOf(
+            "device pairing",
+            "paired with",
+            "linked to",
+            "rcs",
+            "chat features",
+            "connecting",
+            "backing up",
+            "searching for",
+            "sim card",
+            "default sms",
+            "set up",
         )
     }
 }

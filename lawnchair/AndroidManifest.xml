@@ -78,7 +78,7 @@
 
         <!-- ARIA receivers -->
         <receiver android:name="com.aria.launcher.aria.data.ChargingReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
                 <action android:name="android.intent.action.ACTION_POWER_DISCONNECTED" />
@@ -87,7 +87,7 @@
         <receiver android:name="com.aria.launcher.aria.data.ActivityUpdateReceiver"
             android:exported="false" />
         <receiver android:name="com.aria.launcher.aria.data.AndroidAutoReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.app.action.ENTER_CAR_MODE" />
                 <action android:name="android.app.action.EXIT_CAR_MODE" />

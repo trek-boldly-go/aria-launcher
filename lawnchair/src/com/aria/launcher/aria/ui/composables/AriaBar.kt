@@ -7,7 +7,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
 import com.aria.launcher.aria.ui.brief.BriefItem
 
 @Composable
@@ -23,8 +22,6 @@ fun AriaBar(
             text = greeting,
             style = MaterialTheme.typography.headlineLarge.copy(
                 fontWeight = FontWeight.Bold,
-                fontSize = 30.sp,
-                letterSpacing = (-0.8).sp,
             ),
             color = MaterialTheme.colorScheme.onSurface,
         )

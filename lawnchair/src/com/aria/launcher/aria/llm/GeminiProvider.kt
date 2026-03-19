@@ -54,8 +54,7 @@ class GeminiProvider(
         val request = buildRequest(body, stream = false)
         try {
             client.newCall(request).execute().use { response ->
-                val responseBody = response.body?.string()
-                    ?: return@withContext LlmResult.Error("Empty response")
+                val responseBody = response.body.string()
                 if (!response.isSuccessful) {
                     Log.e(TAG, "API error ${response.code}: $responseBody")
                     return@withContext LlmResult.Error("HTTP ${response.code}: $responseBody")
@@ -118,8 +117,7 @@ class GeminiProvider(
         val request = buildRequest(body, stream = false)
         try {
             client.newCall(request).execute().use { response ->
-                val responseBody = response.body?.string()
-                    ?: return@withContext LlmResult.Error("Empty response")
+                val responseBody = response.body.string()
                 if (!response.isSuccessful) {
                     return@withContext LlmResult.Error("HTTP ${response.code}: $responseBody")
                 }
@@ -257,14 +255,13 @@ class GeminiProvider(
     companion object {
         private const val TAG = "ARIA.Gemini"
         private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
-        private const val DEFAULT_MODEL = "gemini-flash-latest"
+        private const val DEFAULT_MODEL = "gemini-2.5-flash"
 
         /** Models available for selection in the UI. */
         val AVAILABLE_MODELS = listOf(
-            "gemini-flash-latest" to "Gemini Flash (Latest)",
+            "gemini-2.5-flash" to "Gemini 2.5 Flash (Recommended)",
             "gemini-2.0-flash" to "Gemini 2.0 Flash",
-            "gemini-2.5-flash-preview-05-20" to "Gemini 2.5 Flash (Preview)",
-            "gemini-2.5-pro-preview-05-06" to "Gemini 2.5 Pro (Preview)",
+            "gemini-2.5-pro" to "Gemini 2.5 Pro (Lower free limits)",
         )
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
     }

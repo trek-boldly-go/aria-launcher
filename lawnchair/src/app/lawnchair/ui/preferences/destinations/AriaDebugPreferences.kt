@@ -22,6 +22,7 @@ import app.lawnchair.ui.preferences.components.controls.ClickablePreference
 import app.lawnchair.ui.preferences.components.layout.PreferenceGroup
 import app.lawnchair.ui.preferences.components.layout.PreferenceLayout
 import com.aria.launcher.aria.data.AriaNotificationListener
+import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.data.SkillDao
 import com.aria.launcher.aria.data.SsidClassificationDao
@@ -33,6 +34,7 @@ import com.aria.launcher.aria.engine.PredictionEngine
 import com.aria.launcher.aria.engine.SkillOrchestrator
 import com.aria.launcher.aria.engine.SsidClassificationService
 import com.aria.launcher.aria.ui.AriaHomeState
+import com.google.android.gms.location.DetectedActivity
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -54,6 +56,7 @@ private interface AriaDebugEntryPoint {
     fun ssidClassificationDao(): SsidClassificationDao
     fun ariaContextMonitor(): AriaContextMonitor
     fun ariaHomeState(): AriaHomeState
+    fun ariaPreferences(): AriaPreferences
 }
 
 @Composable
@@ -88,16 +91,19 @@ fun AriaDebugPreferences(
             val repo = entryPoint.usageDataRepository()
             val signals = entryPoint.contextSignalManager()
             val skillDao = entryPoint.skillDao()
+            val prefs = entryPoint.ariaPreferences()
             withContext(Dispatchers.IO) {
                 eventCount = repo.getEventsForTraining(30).size
                 predictionCount = repo.getAllPredictions().size
                 skillCount = skillDao.getAllSkills().size
             }
+            val homeWifi = withContext(Dispatchers.IO) { prefs.getHomeWifiSsid() }
+            val workWifi = withContext(Dispatchers.IO) { prefs.getWorkWifiSsid() }
             val key = ContextKey.current(
                 wifiSsid = signals.wifiSsid.value,
                 detectedActivity = signals.detectedActivity.value,
-                homeWifiSsid = null,
-                workWifiSsid = null,
+                homeWifiSsid = homeWifi,
+                workWifiSsid = workWifi,
             )
             contextKeyText = key.toStringKey()
         }
@@ -194,15 +200,20 @@ fun AriaDebugPreferences(
                     label = "Context key",
                     subtitle = contextKeyText ?: "Loading\u2026",
                     onClick = {
-                        val signals = entryPoint.contextSignalManager()
-                        val key = ContextKey.current(
-                            wifiSsid = signals.wifiSsid.value,
-                            detectedActivity = signals.detectedActivity.value,
-                            homeWifiSsid = null,
-                            workWifiSsid = null,
-                        )
-                        contextKeyText = key.toStringKey()
-                        Toast.makeText(context, "Context: ${key.toStringKey()}", Toast.LENGTH_SHORT).show()
+                        scope.launch {
+                            val signals = entryPoint.contextSignalManager()
+                            val prefs = entryPoint.ariaPreferences()
+                            val homeWifi = withContext(Dispatchers.IO) { prefs.getHomeWifiSsid() }
+                            val workWifi = withContext(Dispatchers.IO) { prefs.getWorkWifiSsid() }
+                            val key = ContextKey.current(
+                                wifiSsid = signals.wifiSsid.value,
+                                detectedActivity = signals.detectedActivity.value,
+                                homeWifiSsid = homeWifi,
+                                workWifiSsid = workWifi,
+                            )
+                            contextKeyText = key.toStringKey()
+                            Toast.makeText(context, "Context: ${key.toStringKey()}", Toast.LENGTH_SHORT).show()
+                        }
                     },
                 )
             }
@@ -339,7 +350,7 @@ fun AriaDebugPreferences(
                                     appendLine("ContextKey: ${ctx.contextKey.toStringKey()}")
                                     appendLine("Charging: ${ctx.isCharging}")
                                     appendLine("WiFi: ${ctx.wifiSsid ?: "null"}")
-                                    appendLine("Activity: ${ctx.detectedActivity ?: "null"}")
+                                    appendLine("Activity: ${activityName(ctx.detectedActivity)}")
                                     appendLine("AndroidAuto: ${ctx.isAndroidAutoConnected}")
                                     appendLine("Car: ${ctx.connectedCarName ?: "none"}")
                                     appendLine("Venue: ${ctx.currentVenueCategory ?: "none"}")
@@ -404,10 +415,13 @@ fun AriaDebugPreferences(
                     onClick = {
                         scope.launch {
                             val engine = entryPoint.predictionEngine()
+                            val prefs = entryPoint.ariaPreferences()
+                            val homeWifi = withContext(Dispatchers.IO) { prefs.getHomeWifiSsid() }
+                            val workWifi = withContext(Dispatchers.IO) { prefs.getWorkWifiSsid() }
                             withContext(Dispatchers.IO) {
                                 engine.generatePredictions(
-                                    homeWifiSsid = null,
-                                    workWifiSsid = null,
+                                    homeWifiSsid = homeWifi,
+                                    workWifiSsid = workWifi,
                                 )
                             }
                             val repo = entryPoint.usageDataRepository()
@@ -428,11 +442,14 @@ fun AriaDebugPreferences(
                             val collector = entryPoint.usageStatsCollector()
                             val engine = entryPoint.predictionEngine()
                             val repo = entryPoint.usageDataRepository()
+                            val prefs = entryPoint.ariaPreferences()
+                            val homeWifi = withContext(Dispatchers.IO) { prefs.getHomeWifiSsid() }
+                            val workWifi = withContext(Dispatchers.IO) { prefs.getWorkWifiSsid() }
                             withContext(Dispatchers.IO) {
                                 collector.collectAndStore()
                                 engine.generatePredictions(
-                                    homeWifiSsid = null,
-                                    workWifiSsid = null,
+                                    homeWifiSsid = homeWifi,
+                                    workWifiSsid = workWifi,
                                 )
                                 eventCount = repo.getEventsForTraining(30).size
                                 predictionCount = repo.getAllPredictions().size
@@ -468,4 +485,17 @@ fun AriaDebugPreferences(
             }
         }
     }
+}
+
+private fun activityName(activity: Int?): String = when (activity) {
+    null -> "null"
+    DetectedActivity.IN_VEHICLE -> "IN_VEHICLE ($activity)"
+    DetectedActivity.ON_BICYCLE -> "ON_BICYCLE ($activity)"
+    DetectedActivity.ON_FOOT -> "ON_FOOT ($activity)"
+    DetectedActivity.STILL -> "STILL ($activity)"
+    DetectedActivity.TILTING -> "TILTING ($activity)"
+    DetectedActivity.WALKING -> "WALKING ($activity)"
+    DetectedActivity.RUNNING -> "RUNNING ($activity)"
+    DetectedActivity.UNKNOWN -> "UNKNOWN ($activity)"
+    else -> "? ($activity)"
 }

@@ -1,10 +1,12 @@
 package com.aria.launcher.aria.data
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -12,6 +14,7 @@ import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.google.android.gms.location.ActivityRecognition
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -108,6 +111,15 @@ class ContextSignalManager @Inject constructor(
 
     @SuppressLint("MissingPermission")
     private fun readWifiSsid(): String? {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            if (!loggedWifiPermWarning) {
+                Log.w(TAG, "WiFi SSID unavailable: ACCESS_FINE_LOCATION not granted")
+                loggedWifiPermWarning = true
+            }
+            return null
+        }
         val wm = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
         val ssid = wm.connectionInfo?.ssid ?: return null
         if (ssid == WifiManager.UNKNOWN_SSID) return null
@@ -160,6 +172,8 @@ class ContextSignalManager @Inject constructor(
                 Log.w(TAG, "Activity recognition request failed", e)
             }
     }
+
+    private var loggedWifiPermWarning = false
 
     companion object {
         private const val TAG = "ARIA.ContextSignals"

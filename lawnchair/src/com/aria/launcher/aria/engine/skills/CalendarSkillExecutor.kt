@@ -40,10 +40,14 @@ class CalendarSkillExecutor(
         val startTime = timeFormat.format(Date(next.startTimeMs))
 
         val minutesUntil = ((next.startTimeMs - System.currentTimeMillis()) / 60_000).toInt()
-        val timeDescription = when {
-            minutesUntil <= 0 -> "Now"
-            minutesUntil < 60 -> "in $minutesUntil min"
-            else -> "at $startTime"
+        val timeDescription = if (next.isAllDay) {
+            "All day"
+        } else {
+            when {
+                minutesUntil <= 0 -> "Now"
+                minutesUntil < 60 -> "in $minutesUntil min"
+                else -> "at $startTime"
+            }
         }
 
         val actions = listOf(
@@ -82,7 +86,11 @@ class CalendarSkillExecutor(
 
         val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
         val body = events.take(5).joinToString("\n") { event ->
-            "• ${timeFormat.format(Date(event.startTimeMs))} ${event.title}"
+            if (event.isAllDay) {
+                "• All day: ${event.title}"
+            } else {
+                "• ${timeFormat.format(Date(event.startTimeMs))} ${event.title}"
+            }
         }
 
         val actions = listOf(

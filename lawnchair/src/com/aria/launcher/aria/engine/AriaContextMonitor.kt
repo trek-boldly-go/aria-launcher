@@ -81,6 +81,7 @@ class AriaContextMonitor @Inject constructor(
 
     private suspend fun rebuildContext() {
         try {
+            wifiScanner.refresh()
             val baseContext = AriaContext.build(
                 contextSignalManager = contextSignalManager,
                 calendarEventProvider = calendarEventProvider,

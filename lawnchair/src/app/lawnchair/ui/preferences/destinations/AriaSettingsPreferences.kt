@@ -8,8 +8,12 @@ import android.content.Intent
 import android.os.Process
 import android.provider.Settings
 import android.widget.Toast
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -26,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
 import app.lawnchair.ui.preferences.LocalIsExpandedScreen
 import app.lawnchair.ui.preferences.LocalNavController
 import app.lawnchair.ui.preferences.components.controls.ClickablePreference
@@ -40,6 +45,7 @@ import com.aria.launcher.aria.llm.LiteRtLmProvider
 import com.aria.launcher.aria.llm.LiteRtModelManager
 import com.aria.launcher.aria.llm.LlmProviderManager
 import com.aria.launcher.aria.llm.LlmResult
+import com.aria.launcher.aria.llm.ModelDownloadState
 import com.aria.launcher.aria.llm.ProviderType
 import com.aria.launcher.aria.scheduler.ModelDownloadWorker
 import com.aria.launcher.aria.ui.AriaHomeState
@@ -247,9 +253,9 @@ fun AriaSettingsPreferences(
                                 manager.testConnection()
                             }
                             llmTestResult = when (result) {
-                                is LlmResult.Text -> "OK: ${result.content.take(80)}"
-                                is LlmResult.ToolUse -> "OK (tool use): ${result.content.take(60)}"
-                                is LlmResult.Error -> "Error: ${result.message.take(80)}"
+                                is LlmResult.Text -> "Connected \u2014 ${result.content.take(60)}"
+                                is LlmResult.ToolUse -> "Connected (tool use supported)"
+                                is LlmResult.Error -> LlmProviderManager.humanizeError(result.message)
                             }
                             llmTestRunning = false
                         }
@@ -261,13 +267,16 @@ fun AriaSettingsPreferences(
         PreferenceGroup(heading = "On-device Model") {
             val modelManager = entryPoint.liteRtModelManager()
             val liteRtProvider = entryPoint.liteRtLmProvider()
-            val modelDownloaded = remember { modelManager.isModelDownloaded() }
+            val downloadState by modelManager.downloadState()
+                .collectAsState(initial = if (modelManager.isModelDownloaded()) ModelDownloadState.Completed else ModelDownloadState.NotStarted)
             val engineReady = remember { liteRtProvider.isReady() }
 
-            val modelStatus = when {
-                engineReady -> "Ready (Gemma3-1B)"
-                modelDownloaded -> "Downloaded \u2014 warming up at next charge"
-                else -> "Not downloaded"
+            val modelStatus = when (val state = downloadState) {
+                is ModelDownloadState.NotStarted -> "Not downloaded"
+                is ModelDownloadState.Queued -> "Waiting for Wi-Fi + charging\u2026"
+                is ModelDownloadState.Downloading -> "Downloading\u2026 ${state.progress}%"
+                is ModelDownloadState.Completed -> if (engineReady) "Ready (Gemma3-1B)" else "Downloaded \u2014 warming up at next charge"
+                is ModelDownloadState.Failed -> "Download failed: ${state.message}"
             }
 
             Item {
@@ -277,7 +286,19 @@ fun AriaSettingsPreferences(
                     onClick = {},
                 )
             }
-            if (!modelDownloaded) {
+            val currentDownloading = downloadState as? ModelDownloadState.Downloading
+            if (currentDownloading != null) {
+                Item {
+                    LinearProgressIndicator(
+                        progress = { currentDownloading.progress / 100f },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+            }
+            if (downloadState is ModelDownloadState.NotStarted) {
                 Item {
                     ClickablePreference(
                         label = "Download on-device model",
@@ -310,7 +331,19 @@ fun AriaSettingsPreferences(
                     )
                 }
             }
-            if (modelDownloaded && providerType != ProviderType.LITERT) {
+            if (downloadState is ModelDownloadState.Failed) {
+                Item {
+                    ClickablePreference(
+                        label = "Retry download",
+                        subtitle = "Tap to try downloading again",
+                        onClick = {
+                            ModelDownloadWorker.enqueue(context, bypassConstraints = true)
+                            Toast.makeText(context, "Retrying download\u2026", Toast.LENGTH_SHORT).show()
+                        },
+                    )
+                }
+            }
+            if (downloadState is ModelDownloadState.Completed && providerType != ProviderType.LITERT) {
                 Item {
                     ClickablePreference(
                         label = "Switch to on-device",

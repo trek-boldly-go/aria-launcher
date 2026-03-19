@@ -31,18 +31,22 @@ class CalendarBriefSource @Inject constructor() : BriefDataSource {
 
     private fun UpcomingCalendarEvent.toBriefItem(now: Long): BriefItem.CalendarEvent {
         val minutesUntil = TimeUnit.MILLISECONDS.toMinutes(startTimeMs - now)
-        val timeDescription = when {
-            minutesUntil < 2 -> "Starting now"
+        val timeDescription = if (isAllDay) {
+            "All day"
+        } else {
+            when {
+                minutesUntil < 2 -> "Starting now"
 
-            minutesUntil < 60 -> "In $minutesUntil min"
+                minutesUntil < 60 -> "In $minutesUntil min"
 
-            minutesUntil < 120 -> {
-                val hours = minutesUntil / 60
-                val mins = minutesUntil % 60
-                if (mins == 0L) "In ${hours}h" else "In ${hours}h ${mins}m"
+                minutesUntil < 120 -> {
+                    val hours = minutesUntil / 60
+                    val mins = minutesUntil % 60
+                    if (mins == 0L) "In ${hours}h" else "In ${hours}h ${mins}m"
+                }
+
+                else -> "In 2 hours"
             }
-
-            else -> "In 2 hours"
         }
         return BriefItem.CalendarEvent(
             title = title,

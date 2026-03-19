@@ -126,7 +126,7 @@ class LlmProviderManager @Inject constructor(
                 client = client,
                 json = json,
                 apiKey = apiKey,
-                modelId = modelId ?: "gemini-flash-latest",
+                modelId = modelId ?: "gemini-2.5-flash",
             )
 
             ProviderType.OLLAMA -> OllamaProvider(
@@ -179,5 +179,34 @@ class LlmProviderManager @Inject constructor(
         private val KEY_MODEL_ID = stringPreferencesKey("model_id")
         private val KEY_REFRESH_TOKEN = stringPreferencesKey("refresh_token")
         private val KEY_FALLBACK_PROVIDER = stringPreferencesKey("fallback_provider")
+
+        /** Convert raw error strings into plain English for display to users. */
+        fun humanizeError(raw: String): String = when {
+            "401" in raw || "Unauthorized" in raw ->
+                "Invalid API key. Double-check that you copied the full key."
+
+            "403" in raw || "Forbidden" in raw ->
+                "This API key doesn\u2019t have permission. Check your account at the provider\u2019s website."
+
+            "429" in raw || "rate" in raw.lowercase() ->
+                "Rate limited \u2014 too many requests. Wait a minute and try again."
+
+            "insufficient_quota" in raw || "billing" in raw.lowercase() ->
+                "Your account needs billing set up. Visit the provider\u2019s billing page."
+
+            "ECONNREFUSED" in raw || "ConnectException" in raw || "connect" in raw.lowercase() ->
+                "Can\u2019t reach the server. Check the URL and your network connection."
+
+            "timeout" in raw.lowercase() || "SocketTimeoutException" in raw ->
+                "Connection timed out. The server may be slow or unreachable."
+
+            "model" in raw.lowercase() && ("not found" in raw.lowercase() || "does not exist" in raw.lowercase()) ->
+                "Model not found. It may have been renamed or removed. Try a different model."
+
+            "SSL" in raw || "certificate" in raw.lowercase() ->
+                "SSL/certificate error. Check that the server URL uses the correct protocol."
+
+            else -> "Connection failed: ${raw.take(200)}"
+        }
     }
 }

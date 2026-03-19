@@ -3,9 +3,11 @@ package com.aria.launcher.aria.ui.onboarding
 
 import android.Manifest
 import android.app.AppOpsManager
+import android.app.role.RoleManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Process
@@ -32,6 +34,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -50,11 +54,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import app.lawnchair.ui.preferences.components.PermissionRow
 import app.lawnchair.ui.theme.LawnchairTheme
 import com.aria.launcher.aria.data.AriaNotificationListener
 import com.aria.launcher.aria.data.AriaPreferences
+import com.aria.launcher.aria.llm.LiteRtLmProvider
+import com.aria.launcher.aria.llm.LiteRtModelManager
 import com.aria.launcher.aria.llm.LlmProviderManager
 import com.aria.launcher.aria.ui.AriaHomeState
 import dagger.hilt.EntryPoint
@@ -65,7 +70,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private const val TOTAL_ONBOARDING_PAGES = 7
+private const val TOTAL_ONBOARDING_PAGES = 8
 
 class AriaOnboardingActivity : ComponentActivity() {
 
@@ -75,6 +80,8 @@ class AriaOnboardingActivity : ComponentActivity() {
         fun llmProviderManager(): LlmProviderManager
         fun ariaPreferences(): AriaPreferences
         fun ariaHomeState(): AriaHomeState
+        fun liteRtModelManager(): LiteRtModelManager
+        fun liteRtLmProvider(): LiteRtLmProvider
     }
 
     private var currentPage by mutableIntStateOf(0)
@@ -84,12 +91,17 @@ class AriaOnboardingActivity : ComponentActivity() {
     private var activityRecognitionGranted by mutableStateOf(false)
     private var calendarGranted by mutableStateOf(false)
     private var notifListenerEnabled by mutableStateOf(false)
+    private var isDefaultLauncher by mutableStateOf(false)
     private var homeWifi by mutableStateOf("")
     private var workWifi by mutableStateOf("")
 
     private val runtimePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { _ -> refreshPermissionStates() }
+
+    private val roleRequestLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { _ -> isDefaultLauncher = checkIsDefaultLauncher() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -109,6 +121,8 @@ class AriaOnboardingActivity : ComponentActivity() {
                     OnboardingWizard(
                         currentPage = currentPage,
                         onPageChange = { currentPage = it },
+                        isDefaultLauncher = isDefaultLauncher,
+                        onRequestDefaultLauncher = { requestDefaultLauncher() },
                         usageStatsGranted = usageStatsGranted,
                         notificationsGranted = notificationsGranted,
                         locationGranted = locationGranted,
@@ -125,6 +139,8 @@ class AriaOnboardingActivity : ComponentActivity() {
                         onGrantNotifListener = { openNotificationListenerSettings() },
                         onFinish = { finishOnboarding(entryPoint) },
                         llmProviderManager = entryPoint.llmProviderManager(),
+                        liteRtModelManager = entryPoint.liteRtModelManager(),
+                        liteRtLmProvider = entryPoint.liteRtLmProvider(),
                         onQrScan = {
                             QrTokenScanner.scan(
                                 this@AriaOnboardingActivity,
@@ -146,14 +162,15 @@ class AriaOnboardingActivity : ComponentActivity() {
     private fun refreshPermissionStates() {
         usageStatsGranted = hasUsageStatsPermission()
         notificationsGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         } else {
             true
         }
-        locationGranted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        activityRecognitionGranted = checkSelfPermission(Manifest.permission.ACTIVITY_RECOGNITION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        calendarGranted = checkSelfPermission(Manifest.permission.READ_CALENDAR) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        locationGranted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        activityRecognitionGranted = checkSelfPermission(Manifest.permission.ACTIVITY_RECOGNITION) == PackageManager.PERMISSION_GRANTED
+        calendarGranted = checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
         notifListenerEnabled = isNotificationListenerEnabled()
+        isDefaultLauncher = checkIsDefaultLauncher()
     }
 
     private fun hasUsageStatsPermission(): Boolean {
@@ -178,6 +195,28 @@ class AriaOnboardingActivity : ComponentActivity() {
 
     private fun openNotificationListenerSettings() {
         startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+    }
+
+    private fun checkIsDefaultLauncher(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = getSystemService(RoleManager::class.java)
+            return roleManager?.isRoleHeld(RoleManager.ROLE_HOME) == true
+        }
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        val resolveInfo = packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        return resolveInfo?.activityInfo?.packageName == packageName
+    }
+
+    private fun requestDefaultLauncher() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = getSystemService(RoleManager::class.java)
+            val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_HOME)
+            if (intent != null) {
+                roleRequestLauncher.launch(intent)
+                return
+            }
+        }
+        startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
     }
 
     private fun requestRuntimePermissions() {
@@ -234,6 +273,8 @@ class AriaOnboardingActivity : ComponentActivity() {
 private fun OnboardingWizard(
     currentPage: Int,
     onPageChange: (Int) -> Unit,
+    isDefaultLauncher: Boolean,
+    onRequestDefaultLauncher: () -> Unit,
     usageStatsGranted: Boolean,
     notificationsGranted: Boolean,
     locationGranted: Boolean,
@@ -250,6 +291,8 @@ private fun OnboardingWizard(
     onGrantNotifListener: () -> Unit,
     onFinish: () -> Unit,
     llmProviderManager: LlmProviderManager,
+    liteRtModelManager: LiteRtModelManager,
+    liteRtLmProvider: LiteRtLmProvider,
     onQrScan: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -267,7 +310,12 @@ private fun OnboardingWizard(
             when (page) {
                 0 -> WelcomePage()
 
-                1 -> PermissionsPage(
+                1 -> DefaultLauncherPage(
+                    isDefault = isDefaultLauncher,
+                    onRequestDefault = onRequestDefaultLauncher,
+                )
+
+                2 -> PermissionsPage(
                     usageStatsGranted = usageStatsGranted,
                     notificationsGranted = notificationsGranted,
                     locationGranted = locationGranted,
@@ -277,17 +325,19 @@ private fun OnboardingWizard(
                     onGrantRuntimePermissions = onGrantRuntimePermissions,
                 )
 
-                2 -> NotificationAccessPage(
+                3 -> NotificationAccessPage(
                     isEnabled = notifListenerEnabled,
                     onEnable = onGrantNotifListener,
                 )
 
-                3 -> LlmSetupPage(
+                4 -> LlmSetupPage(
                     llmProviderManager = llmProviderManager,
                     onQrScanRequested = onQrScan,
+                    liteRtModelManager = liteRtModelManager,
+                    liteRtLmProvider = liteRtLmProvider,
                 )
 
-                4 -> WifiSetupPage(
+                5 -> WifiSetupPage(
                     homeWifi = homeWifi,
                     workWifi = workWifi,
                     currentWifi = currentWifi,
@@ -295,9 +345,9 @@ private fun OnboardingWizard(
                     onWorkWifiChanged = onWorkWifiChanged,
                 )
 
-                5 -> RuleTutorialPage()
+                6 -> RuleTutorialPage()
 
-                6 -> ReadyPage()
+                7 -> ReadyPage()
             }
         }
 
@@ -375,6 +425,51 @@ private fun WelcomePage() {
                 title = "Adaptive",
                 description = "Gets smarter every night while your phone charges.",
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun DefaultLauncherPage(
+    isDefault: Boolean,
+    onRequestDefault: () -> Unit,
+) {
+    OnboardingPageLayout(
+        title = "Set as Home",
+        subtitle = "ARIA replaces your home screen with a context-aware feed. Set it as your default launcher to get started.",
+    ) {
+        if (isDefault) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.CheckCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+                Text(
+                    text = "ARIA is your default launcher",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        } else {
+            Button(
+                onClick = onRequestDefault,
+                modifier = Modifier.fillMaxWidth(),
+                shapes = ButtonDefaults.shapes(),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Home,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.size(8.dp))
+                Text("Set Default Launcher")
+            }
         }
     }
 }
