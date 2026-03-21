@@ -17,10 +17,11 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.aria.launcher.aria.llm.AriaLlmClient
 import com.aria.launcher.aria.llm.LiteRtModelManager
+import com.aria.launcher.aria.llm.OnDeviceModel
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okio.buffer
@@ -31,20 +32,31 @@ class ModelDownloadWorker @AssistedInject constructor(
     @Assisted private val appContext: Context,
     @Assisted params: WorkerParameters,
     private val modelManager: LiteRtModelManager,
-    @AriaLlmClient private val client: OkHttpClient,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
+        // Sync selectedModel from inputData so modelManager points at the right file
+        val modelTag = inputData.getString(KEY_MODEL_TAG)
+        if (modelTag != null) {
+            val model = OnDeviceModel.entries.firstOrNull { it.modelIdTag == modelTag }
+            if (model != null) modelManager.selectedModel = model
+        }
+
         if (modelManager.isModelDownloaded()) {
             Log.d(TAG, "Model already downloaded, skipping")
             return Result.success()
         }
 
+        val displayName = inputData.getString(KEY_MODEL_DISPLAY_NAME)
+            ?: modelManager.selectedModel.displayName
+
         return try {
-            setForeground(createForegroundInfo("Downloading on-device model…", 0, 0))
+            setForeground(createForegroundInfo("Downloading $displayName\u2026", 0, 0))
             modelManager.modelFile.parentFile?.mkdirs()
-            Log.i(TAG, "Starting model download from ${LiteRtModelManager.MODEL_DOWNLOAD_URL} (attempt $runAttemptCount)")
-            downloadModel()
+            val downloadUrl = inputData.getString(KEY_DOWNLOAD_URL)
+                ?: modelManager.selectedModel.downloadUrl
+            Log.i(TAG, "Starting model download from $downloadUrl (attempt $runAttemptCount)")
+            downloadModel(downloadUrl)
             val fileSize = modelManager.modelFile.length()
             Log.i(TAG, "Model download complete: $fileSize bytes (${fileSize / 1_048_576} MB)")
             dismissNotification()
@@ -62,12 +74,19 @@ class ModelDownloadWorker @AssistedInject constructor(
         }
     }
 
-    private fun downloadModel() {
-        val request = Request.Builder()
-            .url(LiteRtModelManager.MODEL_DOWNLOAD_URL)
-            .build()
+    private fun downloadModel(downloadUrl: String) {
+        val hfToken = inputData.getString(KEY_HF_TOKEN)
+        val displayName = inputData.getString(KEY_MODEL_DISPLAY_NAME)
+            ?: modelManager.selectedModel.displayName
+        val requestBuilder = Request.Builder()
+            .url(downloadUrl)
+            .header("User-Agent", "ARIA-Launcher/1.0")
+        if (!hfToken.isNullOrBlank()) {
+            requestBuilder.header("Authorization", "Bearer $hfToken")
+        }
+        val request = requestBuilder.build()
 
-        client.newCall(request).execute().use { response ->
+        downloadClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 error("Download failed: HTTP ${response.code}")
             }
@@ -92,7 +111,7 @@ class ModelDownloadWorker @AssistedInject constructor(
                         if (progress >= lastNotifiedProgress + 2) {
                             lastNotifiedProgress = progress
                             val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
-                                .setContentTitle("Downloading on-device model\u2026 $progress%")
+                                .setContentTitle("Downloading $displayName\u2026 $progress%")
                                 .setSmallIcon(android.R.drawable.stat_sys_download)
                                 .setOngoing(true)
                                 .setProgress(100, progress, false)
@@ -137,6 +156,14 @@ class ModelDownloadWorker @AssistedInject constructor(
     }
 
     companion object {
+        /** Dedicated client for large file downloads — longer timeouts than the LLM client. */
+        private val downloadClient = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.MINUTES)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .build()
+
         private const val TAG = "ARIA.ModelDownload"
         const val WORK_NAME = "litert_model_download"
         private const val CHANNEL_ID = "aria_model_download"
@@ -144,8 +171,20 @@ class ModelDownloadWorker @AssistedInject constructor(
         private const val BUFFER_SIZE = 8192L
         const val KEY_PROGRESS = "progress"
         const val KEY_ERROR = "error"
+        private const val KEY_HF_TOKEN = "hf_token"
+        private const val KEY_DOWNLOAD_URL = "download_url"
+        private const val KEY_MODEL_DISPLAY_NAME = "model_display_name"
+        private const val KEY_MODEL_TAG = "model_tag"
 
-        fun enqueue(context: Context, bypassConstraints: Boolean = false) {
+        fun enqueue(
+            context: Context,
+            model: OnDeviceModel,
+            bypassConstraints: Boolean = false,
+            hfToken: String? = null,
+        ) {
+            if (hfToken.isNullOrBlank()) {
+                Log.w(TAG, "No HuggingFace token provided — download will likely fail (model is gated)")
+            }
             val constraints = if (bypassConstraints) {
                 Constraints.Builder()
                     .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -156,15 +195,25 @@ class ModelDownloadWorker @AssistedInject constructor(
                     .setRequiresCharging(true)
                     .build()
             }
-            Log.i(TAG, "Enqueuing model download (bypassConstraints=$bypassConstraints)")
+            Log.i(TAG, "Enqueuing ${model.displayName} download (bypassConstraints=$bypassConstraints, hasToken=${!hfToken.isNullOrBlank()})")
+            val inputData = workDataOf(
+                KEY_HF_TOKEN to hfToken,
+                KEY_DOWNLOAD_URL to model.downloadUrl,
+                KEY_MODEL_DISPLAY_NAME to model.displayName,
+                KEY_MODEL_TAG to model.modelIdTag,
+            )
             val request = OneTimeWorkRequestBuilder<ModelDownloadWorker>()
                 .setConstraints(constraints)
+                .setInputData(inputData)
                 .build()
             WorkManager.getInstance(context)
                 .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, request)
         }
 
         fun humanizeDownloadError(raw: String): String = when {
+            "HTTP 401" in raw || "HTTP 403" in raw ->
+                "Authentication required. Add your HuggingFace token in ARIA settings."
+
             "HTTP 4" in raw -> "Server rejected the request. The download URL may have changed."
 
             "HTTP 5" in raw -> "Server error. Try again later."
@@ -176,7 +225,7 @@ class ModelDownloadWorker @AssistedInject constructor(
                 "Connection timed out. Try again on a faster network."
 
             "No space" in raw || "ENOSPC" in raw ->
-                "Not enough storage space. Free up ~1 GB and try again."
+                "Not enough storage space. Free up some space and try again."
 
             "IOException" in raw || "ProtocolException" in raw ->
                 "Network error during download. Try again."

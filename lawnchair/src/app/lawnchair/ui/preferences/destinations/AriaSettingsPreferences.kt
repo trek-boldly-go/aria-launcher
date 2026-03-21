@@ -13,10 +13,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -46,6 +48,7 @@ import com.aria.launcher.aria.llm.LiteRtModelManager
 import com.aria.launcher.aria.llm.LlmProviderManager
 import com.aria.launcher.aria.llm.LlmResult
 import com.aria.launcher.aria.llm.ModelDownloadState
+import com.aria.launcher.aria.llm.OnDeviceModel
 import com.aria.launcher.aria.llm.ProviderType
 import com.aria.launcher.aria.scheduler.ModelDownloadWorker
 import com.aria.launcher.aria.ui.AriaHomeState
@@ -267,21 +270,118 @@ fun AriaSettingsPreferences(
         PreferenceGroup(heading = "On-device Model") {
             val modelManager = entryPoint.liteRtModelManager()
             val liteRtProvider = entryPoint.liteRtLmProvider()
+            val llmManager = entryPoint.llmProviderManager()
+            val selectedModel by llmManager.selectedOnDeviceModel
+                .collectAsState(initial = modelManager.selectedModel)
             val downloadState by modelManager.downloadState()
                 .collectAsState(initial = if (modelManager.isModelDownloaded()) ModelDownloadState.Completed else ModelDownloadState.NotStarted)
             val engineReady = remember { liteRtProvider.isReady() }
+            val hfToken by llmManager.hfToken.collectAsState(initial = null)
+            var hfTokenInput by remember(hfToken) { mutableStateOf(hfToken ?: "") }
+            var showSwitchConfirm by remember { mutableStateOf<OnDeviceModel?>(null) }
+            val deviceRamMb = remember { LiteRtModelManager.getDeviceTotalRamMb(context) }
+
+            // Auto-save HF token with debounce
+            LaunchedEffect(Unit) {
+                snapshotFlow { hfTokenInput }
+                    .drop(1)
+                    .debounce(1000L)
+                    .collect { value ->
+                        withContext(Dispatchers.IO) {
+                            llmManager.setHfToken(value.ifBlank { null })
+                        }
+                    }
+            }
+
+            // Model picker — always show ALL models
+            for (model in OnDeviceModel.entries) {
+                val isSelected = model == selectedModel
+                val isEligible = deviceRamMb >= model.minRamMb
+                val isDownloaded = modelManager.isModelDownloaded(model)
+                val subtitle = when {
+                    !isEligible -> "Your device doesn\u2019t have enough RAM for this model"
+                    isSelected && isDownloaded -> "Selected \u00b7 ${model.sizeDescription} \u00b7 ${model.qualityDescription}"
+                    isSelected -> "Selected \u00b7 ${model.sizeDescription} \u00b7 Not yet downloaded"
+                    else -> "${model.sizeDescription} \u00b7 ${model.qualityDescription}"
+                }
+                Item {
+                    ClickablePreference(
+                        label = model.displayName + if (isSelected) " \u2713" else "",
+                        subtitle = subtitle,
+                        onClick = {
+                            if (isEligible && !isSelected) {
+                                showSwitchConfirm = model
+                            }
+                        },
+                    )
+                }
+            }
+
+            // Switch confirmation dialog
+            if (showSwitchConfirm != null) {
+                val targetModel = showSwitchConfirm!!
+                AlertDialog(
+                    onDismissRequest = { showSwitchConfirm = null },
+                    title = { Text("Switch model?") },
+                    text = {
+                        Text(
+                            "This will delete the current model and download " +
+                                "${targetModel.displayName} (${targetModel.sizeDescription}). Continue?",
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showSwitchConfirm = null
+                            scope.launch {
+                                withContext(Dispatchers.IO) {
+                                    llmManager.setSelectedOnDeviceModel(targetModel)
+                                }
+                                if (hfTokenInput.isNotBlank()) {
+                                    ModelDownloadWorker.enqueue(
+                                        context,
+                                        model = targetModel,
+                                        hfToken = hfTokenInput,
+                                    )
+                                    Toast.makeText(
+                                        context,
+                                        "Switched to ${targetModel.displayName} \u2014 download queued",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                } else {
+                                    Toast.makeText(
+                                        context,
+                                        "Switched to ${targetModel.displayName} \u2014 enter HF token to download",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                            }
+                        }) { Text("Switch") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showSwitchConfirm = null }) { Text("Cancel") }
+                    },
+                )
+            }
 
             val modelStatus = when (val state = downloadState) {
                 is ModelDownloadState.NotStarted -> "Not downloaded"
+
                 is ModelDownloadState.Queued -> "Waiting for Wi-Fi + charging\u2026"
+
                 is ModelDownloadState.Downloading -> "Downloading\u2026 ${state.progress}%"
-                is ModelDownloadState.Completed -> if (engineReady) "Ready (Gemma3-1B)" else "Downloaded \u2014 warming up at next charge"
+
+                is ModelDownloadState.Completed -> if (engineReady) {
+                    "Ready (${selectedModel.displayName})"
+                } else {
+                    "Downloaded \u2014 will warm up on first use"
+                }
+
                 is ModelDownloadState.Failed -> "Download failed: ${state.message}"
             }
 
             Item {
                 ClickablePreference(
-                    label = "On-device LLM",
+                    label = "Status",
                     subtitle = modelStatus,
                     onClick = {},
                 )
@@ -298,13 +398,35 @@ fun AriaSettingsPreferences(
                     Spacer(modifier = Modifier.height(4.dp))
                 }
             }
+            Item {
+                OutlinedTextField(
+                    value = hfTokenInput,
+                    onValueChange = { hfTokenInput = it },
+                    label = { Text("HuggingFace token") },
+                    placeholder = { Text("hf_...") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    supportingText = {
+                        Text("Required \u2014 accept Gemma license at huggingface.co, then create a token")
+                    },
+                )
+            }
             if (downloadState is ModelDownloadState.NotStarted) {
                 Item {
                     ClickablePreference(
-                        label = "Download on-device model",
-                        subtitle = "~1 GB \u00b7 Wi-Fi + charging required \u00b7 No internet needed after download",
+                        label = "Download ${selectedModel.displayName}",
+                        subtitle = "${selectedModel.sizeDescription} \u00b7 Wi-Fi + charging required",
                         onClick = {
-                            ModelDownloadWorker.enqueue(context)
+                            if (hfTokenInput.isBlank()) {
+                                Toast.makeText(context, "Enter a HuggingFace token first", Toast.LENGTH_SHORT).show()
+                                return@ClickablePreference
+                            }
+                            scope.launch {
+                                withContext(Dispatchers.IO) { llmManager.setHfToken(hfTokenInput) }
+                            }
+                            ModelDownloadWorker.enqueue(context, model = selectedModel, hfToken = hfTokenInput)
                             Toast.makeText(
                                 context,
                                 "Download queued \u2014 will start on Wi-Fi + charging",
@@ -316,12 +438,24 @@ fun AriaSettingsPreferences(
                 Item {
                     ClickablePreference(
                         label = "Download now",
-                        subtitle = "Skip Wi-Fi/charging requirement \u2014 uses ~1 GB of data",
-                        confirmationText = "This will download ~1 GB over your current connection " +
+                        subtitle = "Skip Wi-Fi/charging requirement \u2014 uses ${selectedModel.sizeDescription} of data",
+                        confirmationText = "This will download ${selectedModel.sizeDescription} over your current connection " +
                             "without waiting for Wi-Fi or charging. " +
                             "This may use mobile data and drain battery.",
                         onClick = {
-                            ModelDownloadWorker.enqueue(context, bypassConstraints = true)
+                            if (hfTokenInput.isBlank()) {
+                                Toast.makeText(context, "Enter a HuggingFace token first", Toast.LENGTH_SHORT).show()
+                                return@ClickablePreference
+                            }
+                            scope.launch {
+                                withContext(Dispatchers.IO) { llmManager.setHfToken(hfTokenInput) }
+                            }
+                            ModelDownloadWorker.enqueue(
+                                context,
+                                model = selectedModel,
+                                bypassConstraints = true,
+                                hfToken = hfTokenInput,
+                            )
                             Toast.makeText(
                                 context,
                                 "Download starting now",
@@ -337,7 +471,19 @@ fun AriaSettingsPreferences(
                         label = "Retry download",
                         subtitle = "Tap to try downloading again",
                         onClick = {
-                            ModelDownloadWorker.enqueue(context, bypassConstraints = true)
+                            if (hfTokenInput.isBlank()) {
+                                Toast.makeText(context, "Enter a HuggingFace token first", Toast.LENGTH_SHORT).show()
+                                return@ClickablePreference
+                            }
+                            scope.launch {
+                                withContext(Dispatchers.IO) { llmManager.setHfToken(hfTokenInput) }
+                            }
+                            ModelDownloadWorker.enqueue(
+                                context,
+                                model = selectedModel,
+                                bypassConstraints = true,
+                                hfToken = hfTokenInput,
+                            )
                             Toast.makeText(context, "Retrying download\u2026", Toast.LENGTH_SHORT).show()
                         },
                     )
@@ -347,7 +493,7 @@ fun AriaSettingsPreferences(
                 Item {
                     ClickablePreference(
                         label = "Switch to on-device",
-                        subtitle = "Use Gemma3-1B for all inference \u2014 fully offline",
+                        subtitle = "Use ${selectedModel.displayName} for all inference \u2014 fully offline",
                         onClick = {
                             scope.launch {
                                 withContext(Dispatchers.IO) {

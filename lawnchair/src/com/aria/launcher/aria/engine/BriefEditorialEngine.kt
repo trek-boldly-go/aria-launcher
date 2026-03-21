@@ -2,6 +2,7 @@
 package com.aria.launcher.aria.engine
 
 import android.util.Log
+import com.aria.launcher.aria.data.WeatherProvider
 import com.aria.launcher.aria.llm.ChatMessage
 import com.aria.launcher.aria.llm.EditorialPrompts
 import com.aria.launcher.aria.llm.LlmProviderManager
@@ -31,6 +32,7 @@ import kotlinx.serialization.json.jsonPrimitive
 class BriefEditorialEngine @Inject constructor(
     private val llmProviderManager: LlmProviderManager,
     private val json: Json,
+    private val weatherProvider: WeatherProvider,
 ) {
     /**
      * Generates a curated Brief via LLM editorial.
@@ -39,7 +41,8 @@ class BriefEditorialEngine @Inject constructor(
     suspend fun generateBrief(context: AriaContext): List<BriefItem>? {
         val provider = llmProviderManager.getProvider() ?: return null
 
-        val systemPrompt = EditorialPrompts.buildEditorialSystemPrompt(context)
+        val weather = weatherProvider.getWeather()
+        val systemPrompt = EditorialPrompts.buildEditorialSystemPrompt(context, weather)
         val result = provider.complete(
             systemPrompt = systemPrompt,
             messages = listOf(ChatMessage(Role.USER, "Generate the Brief for this context.")),
@@ -60,7 +63,8 @@ class BriefEditorialEngine @Inject constructor(
 
     private fun parseJsonToBriefItems(jsonText: String): List<BriefItem>? {
         return try {
-            val root = json.parseToJsonElement(jsonText.trim()).jsonObject
+            val cleaned = stripMarkdownFences(jsonText)
+            val root = json.parseToJsonElement(cleaned).jsonObject
             val briefArray = root["brief"]?.jsonArray ?: return emptyList()
             briefArray.mapNotNull { element ->
                 runCatching { parseBriefItem(element.jsonObject) }.getOrNull()
@@ -140,6 +144,17 @@ class BriefEditorialEngine @Inject constructor(
         val intentUri = obj["intentUri"]?.jsonPrimitive?.contentOrNull
             ?.takeIf { it.isNotBlank() && it != "null" }
         return BriefAction(label = label, intentUri = intentUri)
+    }
+
+    /** Strip ```json ... ``` fences that small models tend to wrap around JSON output. */
+    private fun stripMarkdownFences(text: String): String {
+        val trimmed = text.trim()
+        if (!trimmed.startsWith("```")) return trimmed
+        val start = trimmed.indexOf('\n')
+        if (start == -1) return trimmed
+        val end = trimmed.lastIndexOf("```")
+        if (end <= start) return trimmed.substring(start + 1).trim()
+        return trimmed.substring(start + 1, end).trim()
     }
 
     companion object {

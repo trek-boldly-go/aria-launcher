@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
 package com.aria.launcher.aria.engine
 
+import android.content.Context
+import android.content.pm.PackageManager
 import com.aria.launcher.aria.data.CalendarEventProvider
 import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.data.NearbyWifiScanner
@@ -32,6 +34,7 @@ data class AriaContext(
 
     // Recent apps (last 2 hours, foreground only)
     val recentAppPackages: List<String>,
+    val recentAppLabels: List<String> = emptyList(),
 
     // Venue (populated by Session 9 SsidClassificationService)
     val currentVenueCategory: String? = null,
@@ -57,6 +60,7 @@ data class AriaContext(
 
     companion object {
         suspend fun build(
+            appContext: Context,
             contextSignalManager: ContextSignalManager,
             calendarEventProvider: CalendarEventProvider,
             usageDataRepository: UsageDataRepository,
@@ -86,6 +90,11 @@ data class AriaContext(
                 .distinct()
                 .take(10)
 
+            val pm = appContext.packageManager
+            val appLabels = recentApps.map { pkg ->
+                resolveAppLabel(pm, pkg)
+            }
+
             return AriaContext(
                 timestampMs = now,
                 contextKey = contextKey,
@@ -97,9 +106,18 @@ data class AriaContext(
                 nearbySSIDs = wifiScanner.nearbySSIDs.value,
                 upcomingEvents = upcomingEvents,
                 recentAppPackages = recentApps,
+                recentAppLabels = appLabels,
             )
         }
     }
+}
+
+private fun resolveAppLabel(pm: PackageManager, packageName: String): String = try {
+    pm.getApplicationInfo(packageName, 0).loadLabel(pm).toString()
+} catch (_: PackageManager.NameNotFoundException) {
+    // Uninstalled or system app — extract readable name from package
+    packageName.substringAfterLast('.')
+        .replaceFirstChar { it.uppercase() }
 }
 
 /**

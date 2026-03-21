@@ -76,8 +76,8 @@ import com.aria.launcher.aria.llm.LiteRtModelManager
 import com.aria.launcher.aria.llm.LlmProviderManager
 import com.aria.launcher.aria.llm.LlmResult
 import com.aria.launcher.aria.llm.ModelDownloadState
+import com.aria.launcher.aria.llm.OnDeviceModel
 import com.aria.launcher.aria.llm.ProviderType
-import com.aria.launcher.aria.scheduler.ModelDownloadWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -128,6 +128,7 @@ fun LlmSetupPage(
                     onSelectOpenAi = { currentScreen = LlmSetupScreen.OPENAI_SETUP },
                     liteRtModelManager = liteRtModelManager,
                     liteRtLmProvider = liteRtLmProvider,
+                    llmProviderManager = llmProviderManager,
                 )
 
                 LlmSetupScreen.GEMINI_SETUP -> GeminiSetupSubPage(
@@ -165,6 +166,7 @@ private fun ProviderChooser(
     onSelectOpenAi: () -> Unit,
     liteRtModelManager: LiteRtModelManager?,
     liteRtLmProvider: LiteRtLmProvider?,
+    llmProviderManager: LlmProviderManager?,
 ) {
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
         // Explainer
@@ -182,12 +184,12 @@ private fun ProviderChooser(
         Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = "On-device model (automatic)",
+            text = "On-device model",
             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
             color = MaterialTheme.colorScheme.onBackground,
         )
         Text(
-            text = "A small AI model (~1 GB) will download in the background on Wi-Fi and charging. It handles most everyday tasks \u2014 app predictions, card ranking, and quick questions \u2014 with no internet and no account needed.",
+            text = "An on-device AI model handles app predictions, card ranking, and quick questions offline. Choose a model below based on your device. Requires a free HuggingFace account to download (Gemma license). Set up the token in ARIA settings after onboarding.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -296,6 +298,7 @@ private fun ProviderChooser(
         OnDeviceModelFooter(
             liteRtModelManager = liteRtModelManager,
             liteRtLmProvider = liteRtLmProvider,
+            llmProviderManager = llmProviderManager,
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -368,9 +371,14 @@ private fun ProviderCard(
 private fun OnDeviceModelFooter(
     liteRtModelManager: LiteRtModelManager?,
     liteRtLmProvider: LiteRtLmProvider?,
+    llmProviderManager: LlmProviderManager?,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val isReady = remember { liteRtLmProvider?.isReady() == true }
+    val selectedModel by llmProviderManager?.selectedOnDeviceModel
+        ?.collectAsState(initial = liteRtModelManager?.selectedModel ?: OnDeviceModel.GEMMA_1B)
+        ?: remember { mutableStateOf(OnDeviceModel.GEMMA_1B) }
     val initialState = remember {
         if (liteRtModelManager?.isModelDownloaded() == true) {
             ModelDownloadState.Completed
@@ -381,12 +389,15 @@ private fun OnDeviceModelFooter(
     val downloadState by liteRtModelManager?.downloadState()
         ?.collectAsState(initial = initialState)
         ?: remember { mutableStateOf(initialState) }
+    val deviceRamMb = remember {
+        LiteRtModelManager.getDeviceTotalRamMb(context)
+    }
 
     val statusText = when (val state = downloadState) {
-        is ModelDownloadState.NotStarted -> "Will download automatically (~1 GB)\nWi-Fi + charging \u00b7 No setup needed"
+        is ModelDownloadState.NotStarted -> "${selectedModel.sizeDescription} download \u00b7 Requires HuggingFace token\nSet up in ARIA settings after onboarding"
         is ModelDownloadState.Queued -> "Queued \u2014 waiting for Wi-Fi + charging"
         is ModelDownloadState.Downloading -> "Downloading\u2026 ${state.progress}%"
-        is ModelDownloadState.Completed -> if (isReady) "Ready (Gemma3 1B) \u00b7 Works offline" else "Downloaded \u2014 warming up at next charge"
+        is ModelDownloadState.Completed -> if (isReady) "Ready (${selectedModel.displayName}) \u00b7 Works offline" else "Downloaded \u2014 will warm up on first use"
         is ModelDownloadState.Failed -> "Download failed: ${state.message}"
     }
     val currentState = downloadState
@@ -420,6 +431,71 @@ private fun OnDeviceModelFooter(
                     )
                 }
             }
+
+            // Model chooser
+            if (llmProviderManager != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Model",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                for (model in OnDeviceModel.entries) {
+                    val isEligible = deviceRamMb >= model.minRamMb
+                    val isSelected = model == selectedModel
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                            .then(
+                                if (isEligible && !isSelected) {
+                                    Modifier.clickable {
+                                        scope.launch {
+                                            withContext(Dispatchers.IO) {
+                                                llmProviderManager.setSelectedOnDeviceModel(model)
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Modifier
+                                },
+                            ),
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        },
+                        shape = MaterialTheme.shapes.small,
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = model.displayName + if (isSelected) " \u2713" else "",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                                color = when {
+                                    !isEligible -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                    isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
+                                    else -> MaterialTheme.colorScheme.onSurface
+                                },
+                            )
+                            Text(
+                                text = if (!isEligible) {
+                                    "Your device doesn\u2019t have enough RAM"
+                                } else {
+                                    "${model.sizeDescription} \u00b7 ${model.qualityDescription}"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = when {
+                                    !isEligible -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                    isSelected -> MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
             if (currentDownloading != null) {
                 Spacer(modifier = Modifier.height(8.dp))
                 LinearProgressIndicator(
@@ -429,13 +505,11 @@ private fun OnDeviceModelFooter(
             }
             if (currentFailed != null) {
                 Spacer(modifier = Modifier.height(8.dp))
-                TextButton(
-                    onClick = {
-                        ModelDownloadWorker.enqueue(context, bypassConstraints = true)
-                    },
-                ) {
-                    Text("Tap to retry")
-                }
+                Text(
+                    text = "Set up your HuggingFace token in ARIA settings to retry",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         }
     }

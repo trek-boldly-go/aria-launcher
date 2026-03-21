@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 
@@ -35,9 +36,22 @@ class LlmProviderManager @Inject constructor(
     private val client: OkHttpClient,
     private val json: Json,
     private val liteRtLmProvider: LiteRtLmProvider,
+    private val modelManager: LiteRtModelManager,
 ) {
     private var cachedProvider: LlmProvider? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        // Sync modelManager.selectedModel from DataStore on construction
+        runBlocking {
+            val prefs = context.llmPrefsStore.data.first()
+            val modelTag = prefs[KEY_ON_DEVICE_MODEL]
+            val model = OnDeviceModel.entries.firstOrNull { it.modelIdTag == modelTag }
+            if (model != null) {
+                modelManager.selectedModel = model
+            }
+        }
+    }
 
     val activeProviderType: Flow<ProviderType?> = context.llmPrefsStore.data
         .map { prefs -> prefs[KEY_PROVIDER_TYPE]?.let { ProviderType.valueOf(it) } }
@@ -85,6 +99,59 @@ class LlmProviderManager @Inject constructor(
 
     fun clearCache() {
         cachedProvider = null
+    }
+
+    val selectedOnDeviceModel: Flow<OnDeviceModel> = context.llmPrefsStore.data
+        .map { prefs ->
+            val tag = prefs[KEY_ON_DEVICE_MODEL]
+            OnDeviceModel.entries.firstOrNull { it.modelIdTag == tag } ?: OnDeviceModel.GEMMA_1B
+        }
+
+    suspend fun getSelectedOnDeviceModel(): OnDeviceModel {
+        val tag = context.llmPrefsStore.data.first()[KEY_ON_DEVICE_MODEL]
+        return OnDeviceModel.entries.firstOrNull { it.modelIdTag == tag } ?: OnDeviceModel.GEMMA_1B
+    }
+
+    /**
+     * Switches the on-device model variant. Persists the selection, updates the model manager,
+     * invalidates the running engine (frees GPU memory), clears the cached provider, and
+     * deletes the old model file to reclaim storage.
+     */
+    suspend fun setSelectedOnDeviceModel(model: OnDeviceModel) {
+        val oldModel = modelManager.selectedModel
+        if (oldModel == model) return
+
+        // Persist to DataStore
+        context.llmPrefsStore.edit { prefs ->
+            prefs[KEY_ON_DEVICE_MODEL] = model.modelIdTag
+        }
+
+        // Update in-memory selection
+        modelManager.selectedModel = model
+
+        // Tear down the old engine so GPU resources are freed
+        liteRtLmProvider.invalidateEngine()
+
+        // Clear cached provider so next getProvider() rebuilds
+        cachedProvider = null
+
+        // Delete old model file to reclaim storage
+        if (oldModel != model) {
+            modelManager.deleteModelFile(oldModel)
+        }
+
+        Log.i(TAG, "Switched on-device model: ${oldModel.displayName} → ${model.displayName}")
+    }
+
+    val hfToken: Flow<String?> = context.llmPrefsStore.data
+        .map { it[KEY_HF_TOKEN] }
+
+    suspend fun getHfToken(): String? = context.llmPrefsStore.data.first()[KEY_HF_TOKEN]
+
+    suspend fun setHfToken(token: String?) {
+        context.llmPrefsStore.edit { prefs ->
+            if (token.isNullOrBlank()) prefs.remove(KEY_HF_TOKEN) else prefs[KEY_HF_TOKEN] = token
+        }
     }
 
     private fun createProvider(
@@ -152,12 +219,12 @@ class LlmProviderManager @Inject constructor(
             )
 
             ProviderType.LITERT -> {
-                if (liteRtLmProvider.isReady()) {
+                // Engine warms up lazily on first inference call (~10s one-time cost).
+                // Fall back to remote provider only if model isn't downloaded yet.
+                if (liteRtLmProvider.isReady() || modelManager.isModelDownloaded()) {
                     liteRtLmProvider
                 } else {
-                    // Silent fallback: if the on-device engine isn't warm, use the
-                    // previously configured remote provider (if any). Never show an error.
-                    Log.w(TAG, "LiteRT not ready, falling back to previous remote provider")
+                    Log.w(TAG, "LiteRT model not downloaded, falling back to previous remote provider")
                     val fallbackType = prefs[KEY_FALLBACK_PROVIDER]?.let {
                         runCatching { ProviderType.valueOf(it) }.getOrNull()
                     }
@@ -179,6 +246,8 @@ class LlmProviderManager @Inject constructor(
         private val KEY_MODEL_ID = stringPreferencesKey("model_id")
         private val KEY_REFRESH_TOKEN = stringPreferencesKey("refresh_token")
         private val KEY_FALLBACK_PROVIDER = stringPreferencesKey("fallback_provider")
+        private val KEY_HF_TOKEN = stringPreferencesKey("hf_token")
+        private val KEY_ON_DEVICE_MODEL = stringPreferencesKey("on_device_model")
 
         /** Convert raw error strings into plain English for display to users. */
         fun humanizeError(raw: String): String = when {

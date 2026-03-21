@@ -56,5 +56,6 @@ object LlmModule {
         @AriaLlmClient client: OkHttpClient,
         json: Json,
         liteRtLmProvider: LiteRtLmProvider,
-    ): LlmProviderManager = LlmProviderManager(context, client, json, liteRtLmProvider)
+        modelManager: LiteRtModelManager,
+    ): LlmProviderManager = LlmProviderManager(context, client, json, liteRtLmProvider, modelManager)
 }

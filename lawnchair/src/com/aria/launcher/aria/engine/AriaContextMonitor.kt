@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
 package com.aria.launcher.aria.engine
 
+import android.content.Context
 import android.util.Log
 import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.data.CalendarEventProvider
@@ -8,6 +9,7 @@ import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.data.NearbyWifiScanner
 import com.aria.launcher.aria.data.UsageDataRepository
 import com.aria.launcher.aria.engine.rules.AriaRuleEvaluator
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +33,7 @@ import kotlinx.coroutines.launch
  */
 @Singleton
 class AriaContextMonitor @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val contextSignalManager: ContextSignalManager,
     private val calendarEventProvider: CalendarEventProvider,
     private val usageDataRepository: UsageDataRepository,
@@ -83,6 +86,7 @@ class AriaContextMonitor @Inject constructor(
         try {
             wifiScanner.refresh()
             val baseContext = AriaContext.build(
+                appContext = appContext,
                 contextSignalManager = contextSignalManager,
                 calendarEventProvider = calendarEventProvider,
                 usageDataRepository = usageDataRepository,

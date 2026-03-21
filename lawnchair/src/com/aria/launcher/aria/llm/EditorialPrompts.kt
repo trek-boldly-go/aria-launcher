@@ -1,10 +1,12 @@
 // Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
 package com.aria.launcher.aria.llm
 
+import com.aria.launcher.aria.data.WeatherProvider
 import com.aria.launcher.aria.engine.AriaContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 /**
  * Builds the editorial system prompt for ARIA's LLM Brief curation.
@@ -14,20 +16,61 @@ object EditorialPrompts {
 
     private val timeFormat = SimpleDateFormat("h:mm a", Locale.US)
 
-    fun buildEditorialSystemPrompt(context: AriaContext): String {
+    fun buildEditorialSystemPrompt(
+        context: AriaContext,
+        weather: WeatherProvider.WeatherSnapshot? = null,
+    ): String {
         val key = context.contextKey
-        val formattedTime = timeFormat.format(Date(context.timestampMs))
+        val now = context.timestampMs
+        val formattedTime = timeFormat.format(Date(now))
         val activityStr = context.detectedActivity?.let { activityLabel(it) } ?: "unknown"
+
+        // Calendar: include time-until and start time, not just titles
         val eventsStr = if (context.upcomingEvents.isEmpty()) {
             "none"
         } else {
-            context.upcomingEvents.joinToString("; ") { it.title }
+            context.upcomingEvents.joinToString("; ") { event ->
+                val minutesUntil = TimeUnit.MILLISECONDS.toMinutes(event.startTimeMs - now)
+                val eventTime = timeFormat.format(Date(event.startTimeMs))
+                if (event.isAllDay) {
+                    "${event.title} (all day)"
+                } else if (minutesUntil <= 0) {
+                    "${event.title} (happening now, started at $eventTime)"
+                } else {
+                    "${event.title} (at $eventTime, in ${formatDuration(minutesUntil)})"
+                }
+            }
         }
-        val recentAppsStr = if (context.recentAppPackages.isEmpty()) {
+
+        // Apps: use labels when available, fall back to package name
+        val recentAppsStr = if (context.recentAppLabels.isEmpty()) {
             "none"
         } else {
-            context.recentAppPackages.take(5).joinToString(", ")
+            context.recentAppLabels.take(5).joinToString(", ")
         }
+
+        // Weather
+        val weatherStr = weather?.let {
+            "${it.condition}, ${it.tempF}\u00B0F" +
+                (if (it.feelsLikeF != it.tempF) " (feels like ${it.feelsLikeF}\u00B0)" else "") +
+                if (it.windSpeedMph >= 15) ", wind ${it.windSpeedMph} mph" else ""
+        } ?: "unavailable"
+
+        // Device state
+        val chargingStr = if (context.isCharging) "yes" else "no"
+        val vehicleStr = when {
+            context.isAndroidAutoConnected ->
+                "connected to Android Auto" + (context.connectedCarName?.let { " ($it)" } ?: "")
+
+            key.vehicleContext.name != "NONE" -> key.vehicleContext.name.lowercase().replace('_', ' ')
+
+            else -> "no"
+        }
+
+        // Visit context
+        val visitStr = context.visitContext ?: "unknown"
+
+        // Rules
         val rulesStr = if (context.firedRules.isEmpty()) {
             "none"
         } else {
@@ -44,12 +87,16 @@ object EditorialPrompts {
             - Day: ${key.dayType}
             - Location: ${key.location}
             - Detected activity: $activityStr
+            - Charging: $chargingStr
+            - In vehicle: $vehicleStr
+            - Weather: $weatherStr
+            - Visit context: $visitStr
             - Upcoming calendar events: $eventsStr
             - Recently used apps: $recentAppsStr
             - Current venue: ${context.currentVenueCategory ?: "unknown"}
             - Active user rules that fired: $rulesStr
 
-            Respond ONLY with valid JSON. No markdown, no explanation, no preamble:
+            Respond ONLY with valid JSON. No markdown fences, no explanation, no preamble.
 
             {
               "brief": [
@@ -76,6 +123,12 @@ object EditorialPrompts {
             - If a user rule fired, its corresponding action takes priority.
             - When in doubt, show less.
         """.trimIndent()
+    }
+
+    private fun formatDuration(minutes: Long): String = when {
+        minutes < 60 -> "${minutes}min"
+        minutes % 60 == 0L -> "${minutes / 60}h"
+        else -> "${minutes / 60}h ${minutes % 60}min"
     }
 
     private fun activityLabel(activityType: Int): String = when (activityType) {
