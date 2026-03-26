@@ -84,7 +84,7 @@ fun MediaResumeCard(
                     Text(
                         text = item.subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                        color = BriefCardDefaults.subtitleColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )

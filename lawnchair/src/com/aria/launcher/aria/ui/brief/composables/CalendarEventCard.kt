@@ -73,13 +73,13 @@ fun CalendarEventCard(
                             imageVector = Icons.Filled.Place,
                             contentDescription = null,
                             modifier = Modifier.size(11.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                            tint = BriefCardDefaults.mutedColor,
                         )
                         Spacer(modifier = Modifier.width(3.dp))
                         Text(
                             text = item.location,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                            color = BriefCardDefaults.subtitleColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -109,7 +109,7 @@ fun CalendarEventCard(
                 Text(
                     text = item.secondaryAction.label,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    color = BriefCardDefaults.subtitleColor,
                 )
             }
         }

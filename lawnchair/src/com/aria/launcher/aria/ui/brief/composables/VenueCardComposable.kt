@@ -55,7 +55,7 @@ fun VenueCardComposable(
                         imageVector = Icons.Filled.Place,
                         contentDescription = null,
                         modifier = Modifier.size(11.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                        tint = BriefCardDefaults.mutedColor,
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
@@ -64,7 +64,7 @@ fun VenueCardComposable(
                             letterSpacing = 0.8.sp,
                             fontWeight = FontWeight.Medium,
                         ),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        color = BriefCardDefaults.subtitleColor,
                     )
                 }
                 Spacer(modifier = Modifier.height(3.dp))

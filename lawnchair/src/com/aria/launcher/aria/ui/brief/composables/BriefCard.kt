@@ -22,6 +22,26 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 /**
+ * Centralised color tokens for Brief card content.
+ *
+ * Uses [MaterialTheme.colorScheme.onSurface] (not onSurfaceVariant) so text
+ * stays readable on the translucent card surface, even over dark wallpapers.
+ */
+object BriefCardDefaults {
+    /** Primary text — high contrast on the translucent card. */
+    val titleColor: Color
+        @Composable get() = MaterialTheme.colorScheme.onSurface
+
+    /** Secondary text — softer but still readable over any wallpaper. */
+    val subtitleColor: Color
+        @Composable get() = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+
+    /** Tertiary elements — icons, timestamps, least prominent text. */
+    val mutedColor: Color
+        @Composable get() = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+}
+
+/**
  * Shared container for all Brief item cards.
  *
  * Visual spec:

@@ -61,7 +61,7 @@ fun ProactiveSuggestionCard(
             Text(
                 text = item.rationale,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.70f),
+                color = BriefCardDefaults.subtitleColor,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )

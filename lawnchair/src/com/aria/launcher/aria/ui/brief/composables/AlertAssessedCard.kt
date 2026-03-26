@@ -63,7 +63,7 @@ fun AlertAssessedCard(
                     Text(
                         text = item.subtext,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                        color = BriefCardDefaults.subtitleColor,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
