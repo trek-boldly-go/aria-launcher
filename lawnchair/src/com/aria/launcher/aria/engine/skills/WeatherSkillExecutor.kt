@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.aria.launcher.aria.data.AppSkill
+import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.data.SkillAction
 import com.aria.launcher.aria.data.SkillResult
 import com.aria.launcher.aria.engine.SkillExecutor
@@ -34,6 +35,7 @@ class WeatherSkillExecutor(
     private val context: Context,
     private val httpClient: OkHttpClient,
     private val json: Json,
+    private val ariaPreferences: AriaPreferences,
 ) : SkillExecutor {
 
     override val supportedSkillIds = setOf("weather.forecast", "weather.alerts")
@@ -56,7 +58,7 @@ class WeatherSkillExecutor(
             return null
         }
 
-        return try {
+        val gpsLocation = try {
             val client = LocationServices.getFusedLocationProviderClient(context)
             val location = Tasks.await(
                 client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null),
@@ -71,7 +73,28 @@ class WeatherSkillExecutor(
                 if (last != null) last.latitude to last.longitude else null
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to get location", e)
+            Log.d(TAG, "GPS location unavailable, trying saved location", e)
+            null
+        }
+
+        if (gpsLocation != null) return gpsLocation
+
+        // Fallback: use saved location from AriaPreferences (same as WeatherProvider)
+        // Reject if older than 24h — stale locations from travel produce wrong results
+        return try {
+            kotlinx.coroutines.runBlocking {
+                val ts = ariaPreferences.getDefaultLocationTimestamp()
+                val ageMs = System.currentTimeMillis() - ts
+                if (ts > 0 && ageMs > MAX_SAVED_LOCATION_AGE_MS) {
+                    Log.w(TAG, "Saved location is stale (${ageMs / 3_600_000}h old), skipping")
+                    return@runBlocking null
+                }
+                val lat = ariaPreferences.getDefaultLatitude() ?: return@runBlocking null
+                val lng = ariaPreferences.getDefaultLongitude() ?: return@runBlocking null
+                Log.d(TAG, "Using saved location: $lat, $lng")
+                lat to lng
+            }
+        } catch (_: Exception) {
             null
         }
     }
@@ -237,6 +260,7 @@ class WeatherSkillExecutor(
 
     companion object {
         private const val TAG = "ARIA.WeatherSkill"
+        private const val MAX_SAVED_LOCATION_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
 
         private fun weatherCodeToDescription(code: Int): String = when (code) {
             0 -> "Clear"

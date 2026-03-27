@@ -21,7 +21,7 @@ class AriaNotificationListener : NotificationListenerService() {
                 oldest.forEach { cachedNotifications.remove(it.key) }
             }
         }
-        Log.d(TAG, "Notification posted: ${sbn.packageName} — ${sbn.notification.extras?.getString("android.title")}")
+        Log.d(TAG, "Notification posted: ${sbn.packageName} — ${sbn.notification.extras?.getCharSequence("android.title")}")
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {

@@ -99,10 +99,14 @@ class AriaPreferences @Inject constructor(
 
     suspend fun getDefaultLongitude(): Double? = context.ariaPrefsStore.data.first()[KEY_DEFAULT_LNG]?.toDoubleOrNull()
 
+    suspend fun getDefaultLocationTimestamp(): Long =
+        context.ariaPrefsStore.data.first()[KEY_DEFAULT_LOCATION_TS] ?: 0L
+
     suspend fun setDefaultLocation(lat: Double, lng: Double) {
         context.ariaPrefsStore.edit {
             it[KEY_DEFAULT_LAT] = lat.toString()
             it[KEY_DEFAULT_LNG] = lng.toString()
+            it[KEY_DEFAULT_LOCATION_TS] = System.currentTimeMillis()
         }
     }
 
@@ -127,6 +131,7 @@ class AriaPreferences @Inject constructor(
         private val KEY_MEMORY_ENABLED = booleanPreferencesKey("memory_enabled")
         private val KEY_DEFAULT_LAT = stringPreferencesKey("default_latitude")
         private val KEY_DEFAULT_LNG = stringPreferencesKey("default_longitude")
+        private val KEY_DEFAULT_LOCATION_TS = longPreferencesKey("default_location_ts")
         private val KEY_BOOTSTRAP_DONE = booleanPreferencesKey("bootstrap_done")
     }
 }

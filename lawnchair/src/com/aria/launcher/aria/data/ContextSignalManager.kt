@@ -11,6 +11,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.util.Log
@@ -109,7 +110,11 @@ class ContextSignalManager @Inject constructor(
             status == BatteryManager.BATTERY_STATUS_FULL
     }
 
-    @SuppressLint("MissingPermission")
+    /**
+     * Reads WiFi SSID using the modern NetworkCapabilities API.
+     * The deprecated WifiManager.connectionInfo.ssid returns <unknown ssid>
+     * on Android 12+ even with ACCESS_FINE_LOCATION granted.
+     */
     private fun readWifiSsid(): String? {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED
@@ -120,16 +125,16 @@ class ContextSignalManager @Inject constructor(
             }
             return null
         }
-        val wm = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
-        val ssid = wm.connectionInfo?.ssid ?: return null
-        if (ssid == WifiManager.UNKNOWN_SSID) return null
-        // Strip surrounding quotes Android adds to SSIDs
-        return ssid.removePrefix("\"").removeSuffix("\"").ifBlank { null }
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = cm.activeNetwork ?: return null
+        val caps = cm.getNetworkCapabilities(network) ?: return null
+        if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return null
+        return extractSsid(caps)
     }
 
     /**
-     * Listens for WiFi connectivity changes and refreshes the SSID whenever
-     * the device connects to or disconnects from a WiFi network.
+     * Listens for WiFi connectivity changes and reads SSID from
+     * [NetworkCapabilities.getTransportInfo] — the modern API that works on Android 12+.
      */
     private fun registerWifiListener() {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -140,8 +145,11 @@ class ContextSignalManager @Inject constructor(
         cm.registerNetworkCallback(
             request,
             object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) {
-                    refreshWifiSsid()
+                override fun onCapabilitiesChanged(
+                    network: Network,
+                    caps: NetworkCapabilities,
+                ) {
+                    _wifiSsid.value = extractSsid(caps)
                 }
 
                 override fun onLost(network: Network) {
@@ -149,6 +157,14 @@ class ContextSignalManager @Inject constructor(
                 }
             },
         )
+    }
+
+    /** Extract SSID from NetworkCapabilities, stripping quotes and filtering unknowns. */
+    private fun extractSsid(caps: NetworkCapabilities): String? {
+        val wifiInfo = caps.transportInfo as? WifiInfo ?: return null
+        val ssid = wifiInfo.ssid ?: return null
+        if (ssid == WifiManager.UNKNOWN_SSID) return null
+        return ssid.removePrefix("\"").removeSuffix("\"").ifBlank { null }
     }
 
     private fun registerAndroidAutoListener() {

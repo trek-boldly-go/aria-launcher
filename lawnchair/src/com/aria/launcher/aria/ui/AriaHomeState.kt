@@ -212,15 +212,27 @@ class AriaHomeState @Inject constructor(
 
     /** Execute a BriefAction — handles intentUri launches and MCP tool calls (Session 9+). */
     fun executeAction(action: com.aria.launcher.aria.ui.brief.BriefAction) {
-        val uri = action.intentUri ?: return
+        Log.d(TAG, "executeAction: label=${action.label} intentUri=${action.intentUri}")
+        val uri = action.intentUri ?: run {
+            Log.w(TAG, "executeAction: intentUri is null for action '${action.label}', ignoring")
+            return
+        }
         try {
             val intent = if (uri.startsWith("package:")) {
                 val pkg = uri.removePrefix("package:")
-                pm.getLaunchIntentForPackage(pkg)
+                // Resolve virtual package aliases (weather app varies by device/OEM)
+                val candidates = PACKAGE_ALIASES[pkg] ?: listOf(pkg)
+                candidates.firstNotNullOfOrNull { candidate ->
+                    pm.getLaunchIntentForPackage(candidate)
+                } ?: run {
+                    Log.w(TAG, "No launch intent for any of: $candidates")
+                    return
+                }
             } else {
                 Intent.parseUri(uri, Intent.URI_INTENT_SCHEME)
             }
-            intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)?.let { appContext.startActivity(it) }
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            appContext.startActivity(intent)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to execute brief action: ${action.label}", e)
         }
@@ -428,6 +440,16 @@ class AriaHomeState @Inject constructor(
     companion object {
         private const val TAG = "ARIA.HomeState"
         private const val MAX_PREDICTED_APPS = 20
+
+        /** Virtual package names → ordered list of real packages to try. */
+        private val PACKAGE_ALIASES = mapOf(
+            "weather" to listOf(
+                "com.google.android.apps.weather",         // Standalone Google Weather (Pixel)
+                "com.google.android.googlequicksearchbox",  // Google app (has weather)
+                "com.samsung.android.weather",              // Samsung Weather
+                "com.accuweather.android",                  // AccuWeather
+            ),
+        )
         private const val BOOST_SCORE_DELTA = 1000f // rule-boosted apps float to the top
         private const val CHAIN_TRIGGER_WINDOW_MS = 5 * 60 * 1000L // 5 min: app counts as active trigger
 

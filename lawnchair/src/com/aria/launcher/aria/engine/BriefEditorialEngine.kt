@@ -50,7 +50,10 @@ class BriefEditorialEngine @Inject constructor(
         )
 
         return when (result) {
-            is LlmResult.Text -> parseJsonToBriefItems(result.content)
+            is LlmResult.Text -> {
+                Log.d(TAG, "LLM response:\n${result.content}")
+                parseJsonToBriefItems(result.content)
+            }
 
             is LlmResult.Error -> {
                 Log.w(TAG, "LLM editorial failed: ${result.message}")
@@ -76,18 +79,25 @@ class BriefEditorialEngine @Inject constructor(
     }
 
     private fun parseBriefItem(obj: JsonObject): BriefItem? {
-        val type = obj["type"]?.jsonPrimitive?.contentOrNull ?: return null
+        val rawType = obj["type"]?.jsonPrimitive?.contentOrNull ?: return null
+        val type = normalizeType(rawType)
         val icon = obj["icon"]?.jsonPrimitive?.contentOrNull ?: "info"
         val headline = obj["headline"]?.jsonPrimitive?.contentOrNull ?: return null
         val subtext = obj["subtext"]?.jsonPrimitive?.contentOrNull
-        val action = parseAction(obj["action"]?.jsonObject)
+        val rawAction = parseAction(obj["action"]?.jsonObject)
+        val action = rawAction?.withFallbackIntent(type, icon)
+        if (type != rawType) {
+            Log.d(TAG, "Type normalized: '$rawType' → '$type'")
+        }
+        Log.d(TAG, "Parsed item: type=$type icon=$icon headline=$headline " +
+            "rawIntent=${rawAction?.intentUri} finalIntent=${action?.intentUri}")
 
         return when (type) {
             "alert_assessed" -> BriefItem.AlertAssessed(
                 icon = icon,
                 headline = headline,
                 subtext = subtext,
-                severity = AlertSeverity.INFO,
+                severity = parseSeverity(obj["severity"]?.jsonPrimitive?.contentOrNull),
                 action = action,
             )
 
@@ -141,9 +151,52 @@ class BriefEditorialEngine @Inject constructor(
     private fun parseAction(obj: JsonObject?): BriefAction? {
         obj ?: return null
         val label = obj["label"]?.jsonPrimitive?.contentOrNull ?: return null
-        val intentUri = obj["intentUri"]?.jsonPrimitive?.contentOrNull
+        val raw = obj["intentUri"]?.jsonPrimitive?.contentOrNull
             ?.takeIf { it.isNotBlank() && it != "null" }
+        val intentUri = sanitizeIntentUri(raw)
         return BriefAction(label = label, intentUri = intentUri)
+    }
+
+    /**
+     * Clean up LLM-generated intentUri values:
+     * - Reject known placeholders (com.example.*)
+     * - Prepend "package:" if it looks like a package name but is missing the prefix
+     */
+    private fun sanitizeIntentUri(uri: String?): String? {
+        uri ?: return null
+        if (uri.startsWith("com.example.")) return null
+        if (uri.startsWith("package:") || uri.startsWith("intent:")) return uri
+        // Looks like a bare package name (has dots, no spaces, no colons)
+        if ('.' in uri && ' ' !in uri && ':' !in uri) {
+            Log.d(TAG, "Prepending 'package:' to bare intentUri: $uri")
+            return "package:$uri"
+        }
+        return uri
+    }
+
+    private fun parseSeverity(value: String?): AlertSeverity = when (value?.lowercase()) {
+        "critical" -> AlertSeverity.CRITICAL
+        "warning" -> AlertSeverity.WARNING
+        else -> AlertSeverity.INFO
+    }
+
+    /**
+     * Small models often return abbreviated or invented type names.
+     * Map common mistakes to valid BriefItem types.
+     */
+    private fun normalizeType(raw: String): String = TYPE_ALIASES[raw.lowercase()] ?: raw
+
+    /**
+     * LLMs often omit or guess intentUri. For known card types, fill in
+     * the correct Android package URI so buttons actually work.
+     */
+    private fun BriefAction.withFallbackIntent(type: String, icon: String): BriefAction {
+        // Apply fallback if intentUri is null or doesn't look like a valid scheme
+        if (intentUri != null && (intentUri.startsWith("package:") || intentUri.startsWith("intent:"))) {
+            return this
+        }
+        val fallbackUri = INTENT_FALLBACKS[icon.lowercase()] ?: INTENT_FALLBACKS[type]
+        return if (fallbackUri != null) copy(intentUri = fallbackUri) else this
     }
 
     /** Strip ```json ... ``` fences that small models tend to wrap around JSON output. */
@@ -159,5 +212,39 @@ class BriefEditorialEngine @Inject constructor(
 
     companion object {
         private const val TAG = "ARIA.EditorialEngine"
+
+        /** Map abbreviated/invented type names to valid BriefItem types. */
+        private val TYPE_ALIASES = mapOf(
+            "info" to "live_data_card",
+            "weather" to "live_data_card",
+            "live_data" to "live_data_card",
+            "alert" to "alert_assessed",
+            "warning" to "alert_assessed",
+            "suggestion" to "proactive_suggestion",
+            "proactive" to "proactive_suggestion",
+            "reminder" to "reminder_nudge",
+            "calendar" to "calendar_event",
+            "media" to "media_resume",
+            "venue" to "venue_card",
+        )
+
+        /** Fallback intent URIs for common LLM-generated card types/icons. */
+        private val INTENT_FALLBACKS = mapOf(
+            // Icon-based (LLM often uses material icon names)
+            // Weather: try multiple known packages via WEATHER_PACKAGES in AriaHomeState
+            "weather" to "package:weather",
+            "storm" to "package:weather",
+            "cloud" to "package:weather",
+            "rainy" to "package:weather",
+            "thunderstorm" to "package:weather",
+            "flood" to "package:weather",
+            "calendar_today" to "package:com.google.android.calendar",
+            "event" to "package:com.google.android.calendar",
+            "directions_car" to "package:com.google.android.apps.maps",
+            "map" to "package:com.google.android.apps.maps",
+            "navigation" to "package:com.google.android.apps.maps",
+            // Type-based fallback
+            "alert_assessed" to "package:weather",
+        )
     }
 }

@@ -43,10 +43,17 @@ object EditorialPrompts {
         }
 
         // Apps: use labels when available, fall back to package name
+        // Also collect package names for intent URI guidance
         val recentAppsStr = if (context.recentAppLabels.isEmpty()) {
             "none"
         } else {
             context.recentAppLabels.take(5).joinToString(", ")
+        }
+
+        val recentPackagesStr = if (context.recentAppPackages.isEmpty()) {
+            ""
+        } else {
+            context.recentAppPackages.take(5).joinToString(", ") { "package:$it" }
         }
 
         // Weather
@@ -105,13 +112,27 @@ object EditorialPrompts {
                   "icon": "<material symbol name>",
                   "headline": "<max 6 words — ARIA's judgment, not raw data>",
                   "subtext": "<max 12 words, or null>",
-                  "action": { "label": "<max 3 words>", "intentUri": "<uri or null>" }
+                  "severity": "<critical, warning, or info — only for alert_assessed>",
+                  "action": { "label": "<max 3 words>", "intentUri": "<package:com.example.app or null>" }
                 }
               ]
             }
 
             Valid types: alert_assessed, reminder_nudge, calendar_event, media_resume,
             proactive_suggestion, venue_card, live_data_card
+
+            Example (weather at night, charging):
+            {"brief":[{"type":"live_data_card","icon":"cloud","headline":"Warm and overcast tonight","subtext":"72°F, clearing by morning","action":{"label":"Weather","intentUri":"package:weather"}}]}
+
+            Example (morning with calendar event in 20min):
+            {"brief":[{"type":"calendar_event","icon":"calendar_today","headline":"Team standup in 20min","subtext":"9:30 AM, Conference Room B","action":{"label":"Calendar","intentUri":"package:com.google.android.calendar"}},{"type":"proactive_suggestion","icon":"directions_car","headline":"Leave now to arrive on time","subtext":"22 min drive, moderate traffic","action":{"label":"Navigate","intentUri":"package:com.google.android.apps.maps"}}]}
+
+            Intent URIs: Use "package:<packagename>" to open an app. Examples:
+            - "package:weather" — open Weather
+            - "package:com.google.android.calendar" — open Calendar
+            - "package:com.google.android.apps.maps" — open Maps
+            ${if (recentPackagesStr.isNotEmpty()) "- User's recent apps: $recentPackagesStr" else ""}
+            If you don't know the right package, use null — do NOT guess.
 
             Rules:
             - Maximum 5 items. Minimum 0 — empty is better than noisy.
@@ -121,6 +142,7 @@ object EditorialPrompts {
             - Never show more than one weather item.
             - Calendar events within 30 minutes always appear.
             - If a user rule fired, its corresponding action takes priority.
+            - Action labels must be short (1-3 words) like "Weather", "Open Map", "Dismiss".
             - When in doubt, show less.
         """.trimIndent()
     }

@@ -2,6 +2,7 @@
 package com.aria.launcher.aria.engine
 
 import android.content.Context
+import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.data.CalendarEventProvider
 import com.aria.launcher.aria.data.NearbyWifiScanner
 import com.aria.launcher.aria.data.SkillDao
@@ -29,6 +30,7 @@ object SkillModule {
         @ApplicationContext context: Context,
         calendarEventProvider: CalendarEventProvider,
         wifiScanner: NearbyWifiScanner,
+        ariaPreferences: AriaPreferences,
         @AriaLlmClient httpClient: OkHttpClient,
         json: Json,
     ): SkillExecutorRegistry {
@@ -36,7 +38,7 @@ object SkillModule {
             NotificationSkillExecutor(json),
             CalendarSkillExecutor(calendarEventProvider, json),
             VenueSkillExecutor(wifiScanner, json),
-            WeatherSkillExecutor(context, httpClient, json),
+            WeatherSkillExecutor(context, httpClient, json, ariaPreferences),
         )
         return SkillExecutorRegistry(executors)
     }

@@ -27,8 +27,11 @@ class LiteRtLmProvider @Inject constructor(
     override val modelId: String get() = modelManager.selectedModel.modelIdTag
 
     @Volatile private var engine: Engine? = null
+
     @Volatile private var activeBackend: String = "GPU"
     private val warmUpMutex = Mutex()
+    /** LiteRT only supports one conversation at a time — serialize all inference calls. */
+    private val sessionMutex = Mutex()
 
     /**
      * Initializes the LiteRT engine. Safe to call from multiple coroutines —
@@ -109,27 +112,29 @@ class LiteRtLmProvider @Inject constructor(
         val eng = ensureEngine() ?: return@withContext LlmResult.Error(
             "On-device model not downloaded. Download it in ARIA settings.",
         )
-        try {
-            val userMessage = messages.last().content
-            Log.d(TAG, "complete() ── INPUT ──")
-            Log.d(TAG, "  system: ${systemPrompt.take(500)}")
-            Log.d(TAG, "  user: ${userMessage.take(500)}")
-            Log.d(TAG, "  messages: ${messages.size}, maxTokens: $maxTokens")
-            val startMs = System.currentTimeMillis()
-            val config = ConversationConfig(
-                systemInstruction = Contents.of(systemPrompt),
-            )
-            eng.createConversation(config).use { conv ->
-                val response = conv.sendMessage(userMessage)
-                val output = response.toString()
-                val elapsedMs = System.currentTimeMillis() - startMs
-                Log.d(TAG, "complete() ── OUTPUT ($elapsedMs ms) ──")
-                Log.d(TAG, "  response: ${output.take(1000)}")
-                LlmResult.Text(output)
+        sessionMutex.withLock {
+            try {
+                val userMessage = messages.last().content
+                Log.d(TAG, "complete() ── INPUT ──")
+                Log.d(TAG, "  system: ${systemPrompt.take(500)}")
+                Log.d(TAG, "  user: ${userMessage.take(500)}")
+                Log.d(TAG, "  messages: ${messages.size}, maxTokens: $maxTokens")
+                val startMs = System.currentTimeMillis()
+                val config = ConversationConfig(
+                    systemInstruction = Contents.of(systemPrompt),
+                )
+                eng.createConversation(config).use { conv ->
+                    val response = conv.sendMessage(userMessage)
+                    val output = response.toString()
+                    val elapsedMs = System.currentTimeMillis() - startMs
+                    Log.d(TAG, "complete() ── OUTPUT ($elapsedMs ms) ──")
+                    Log.d(TAG, "  response: ${output.take(1000)}")
+                    LlmResult.Text(output)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "LiteRT complete() failed", e)
+                LlmResult.Error(e.message ?: "LiteRT inference failed", e)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "LiteRT complete() failed", e)
-            LlmResult.Error(e.message ?: "LiteRT inference failed", e)
         }
     }
 
@@ -139,27 +144,29 @@ class LiteRtLmProvider @Inject constructor(
         maxTokens: Int,
     ): Flow<String> = flow {
         val eng = ensureEngine() ?: error("On-device model not downloaded")
-        val userMessage = messages.last().content
-        Log.d(TAG, "streamComplete() ── INPUT ──")
-        Log.d(TAG, "  system: ${systemPrompt.take(500)}")
-        Log.d(TAG, "  user: ${userMessage.take(500)}")
-        Log.d(TAG, "  messages: ${messages.size}, maxTokens: $maxTokens")
-        val startMs = System.currentTimeMillis()
-        val config = ConversationConfig(
-            systemInstruction = Contents.of(systemPrompt),
-        )
-        val fullResponse = StringBuilder()
-        eng.createConversation(config).use { conv ->
-            conv.sendMessageAsync(userMessage)
-                .map { message -> message.toString() }
-                .collect { chunk ->
-                    fullResponse.append(chunk)
-                    emit(chunk)
-                }
+        sessionMutex.withLock {
+            val userMessage = messages.last().content
+            Log.d(TAG, "streamComplete() ── INPUT ──")
+            Log.d(TAG, "  system: ${systemPrompt.take(500)}")
+            Log.d(TAG, "  user: ${userMessage.take(500)}")
+            Log.d(TAG, "  messages: ${messages.size}, maxTokens: $maxTokens")
+            val startMs = System.currentTimeMillis()
+            val config = ConversationConfig(
+                systemInstruction = Contents.of(systemPrompt),
+            )
+            val fullResponse = StringBuilder()
+            eng.createConversation(config).use { conv ->
+                conv.sendMessageAsync(userMessage)
+                    .map { message -> message.toString() }
+                    .collect { chunk ->
+                        fullResponse.append(chunk)
+                        emit(chunk)
+                    }
+            }
+            val elapsedMs = System.currentTimeMillis() - startMs
+            Log.d(TAG, "streamComplete() ── OUTPUT ($elapsedMs ms, ${fullResponse.length} chars) ──")
+            Log.d(TAG, "  response: ${fullResponse.toString().take(1000)}")
         }
-        val elapsedMs = System.currentTimeMillis() - startMs
-        Log.d(TAG, "streamComplete() ── OUTPUT ($elapsedMs ms, ${fullResponse.length} chars) ──")
-        Log.d(TAG, "  response: ${fullResponse.toString().take(1000)}")
     }.flowOn(Dispatchers.IO)
 
     override suspend fun completeWithTools(
