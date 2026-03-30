@@ -4,7 +4,12 @@ Read this file before working on this codebase. It contains critical build, arch
 
 ## Project Overview
 
-ARIA (Adaptive Reasoning Interface for Android) is an AI-native launcher built on Lawnchair/Launcher3. Architecture index: `docs/ARIA_PLAN.md`. Session specs: `docs/sessions/`
+ARIA (Adaptive Reasoning Interface for Android) is an AI-native launcher built on Lawnchair/Launcher3. Architecture index: `docs/ARIA_PLAN.md`. Historical session specs: `docs/sessions/`
+
+## Guidelines
+
+- All "ARIA" code should be maintained. Do NOT skip over bugs or findings simply because they were not touched by a current task. Raise them as issues and proactively attempt to fix/improve them as you work.
+- Assume your user knows little to nothing about android development, so your job is to be the technical capability expert / developer, while your user is a PM and visionary for the project.
 
 ## Repo Structure
 
@@ -22,6 +27,11 @@ ARIA (Adaptive Reasoning Interface for Android) is an AI-native launcher built o
 - `build.gradle` — root app module (Groovy, not kts)
 - `gradle/libs.versions.toml` — version catalog (all deps go here, not inline)
 - `schemas/` — Room database migration schemas
+
+## Code Style
+
+- Run `spotlessCheck` during every code change just as often as a build
+- Code should be self-explanatory whenever possible, making comments mostly unnecessary. When code can't be verbose and it isn't readily understandable, then add comments.
 
 ## Git Workflow
 
@@ -112,34 +122,20 @@ Do **not** scatter ARIA logic across Lawnchair files. If you need to touch a Law
 
 ## Documentation Rules
 
-- **`docs/ARIA_PLAN.md`** is the architecture index — session roadmap, tech stack, key decisions, and overview. It is not the full spec.
-- **`docs/sessions/`** contains the authoritative per-session specs (session-07.md through session-14.md). These are the single source of truth for their respective sessions.
+- **`docs/ARIA_PLAN.md`** is the architecture index — tech stack, key decisions, and overview. It is not the full spec.
+- **`docs/sessions/`** contains historical session specs (session-07 through session-17). These document the design decisions and reference implementations that shaped the current codebase. Useful as context when working in areas they cover.
 - **Never remove** code examples, data model definitions, reference implementations, or design specs from docs unless moving them to another tracked location. Summarizing reference implementations is data loss.
-- **`docs/archive/`** contains the original pre-consolidation source documents. `docs/sessions/` is the current authoritative superset.
 - When consolidating or editing docs, preserve all detail. If in doubt, keep it.
 
 ## Working on ARIA
 
-Development follows the session plan in `docs/sessions/`. Each session (7-14) has specific deliverables, data models, and reference implementations.
+Development is agile and user-driven. The user builds, tests on-device, gathers feedback, then requests changes directly — no pre-planned phases or session roadmap to follow.
 
-### One session at a time
-- **Only work on the current session/phase.** Do not start the next session unless the user explicitly says to.
-- If a session's scope is large, break it into sub-tasks within that session — do not pull work forward from future sessions.
-- This prevents context dilution. Each session has enough detail that rushing through it guarantees missed requirements.
-
-### Read the session file before writing code
-
-At the start of each session, read ONE file:
-
-```
-docs/sessions/session-NN.md  (where NN = current session number, e.g. session-07.md)
-```
-
-This file is self-contained: it includes the ARIA vision, the session deliverables, and only the spec excerpts needed for that session.
-
-**Do NOT read `docs/ARIA_PLAN.md` before starting a session** — it is 2000+ lines and will blow context before any code is written. Use it only as a reference if you need to look up something not covered in the session file.
-
-- If the plan specifies a data model or interface, implement it as specified. Do not simplify, rename fields, or omit properties unless there is a compile-time reason to deviate.
+### Workflow
+- **The user sets priorities.** Implement what is asked for. Do not anticipate or queue up future work.
+- **Iterate quickly.** Small, focused changes that can be built, deployed, and tested on-device.
+- **Read before writing.** Understand the existing code in the area you're changing. Use `docs/sessions/` as historical context if the area was shaped by a specific session.
+- **`docs/ARIA_PLAN.md`** is 2000+ lines — do not read it upfront. Use it only as a reference when you need architectural context not evident from the code.
 
 ### Maintain the vision
 - ARIA is a **temporal UI** — surfaces change based on context, not user arrangement. Every UI decision must pass the test: "Does showing this require the user to do something, or is ARIA already handling it?"
@@ -147,11 +143,6 @@ This file is self-contained: it includes the ARIA vision, the session deliverabl
 - The Brief is capped at 5 items. Empty is correct. Ruthless curation is the feature.
 - Battery-first: heavy inference runs in the nightly charging window. Daytime code only applies pre-computed decisions.
 - Privacy-first: no usage data leaves the device unless the user configures a remote LLM endpoint.
-
-### Attention to detail
-- Follow the plan's reference implementations precisely. They exist because the architecture was designed holistically — changing one interface can break assumptions in later sessions.
-- When the plan says "define now as a seam" for a future phase, create the interface/placeholder as specified — never simplify, but expand if the plan's example is clearly illustrative rather than exhaustive (e.g., a pattern matcher with 8 entries should ship with broader coverage). Future sessions depend on these seams existing.
-- Verify each deliverable listed in the session before declaring it complete.
 
 ## Licensing Rules
 
