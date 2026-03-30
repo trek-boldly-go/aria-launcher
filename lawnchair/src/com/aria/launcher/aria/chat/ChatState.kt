@@ -8,6 +8,7 @@ import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.data.UserMemory
 import com.aria.launcher.aria.data.UserMemoryDao
 import com.aria.launcher.aria.engine.ContextKey
+import com.aria.launcher.aria.engine.DeviceCapabilityCatalog
 import com.aria.launcher.aria.llm.AriaPrompts
 import com.aria.launcher.aria.llm.ChatMessage
 import com.aria.launcher.aria.llm.LlmProviderManager
@@ -35,6 +36,7 @@ class ChatState(
     private val userMemoryDao: UserMemoryDao,
     private val ariaPreferences: AriaPreferences,
     private val ariaChatHandler: AriaChatHandler,
+    private val capabilityCatalog: DeviceCapabilityCatalog,
 ) {
     private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
     val messages: StateFlow<List<UiMessage>> = _messages.asStateFlow()
@@ -73,7 +75,7 @@ class ChatState(
     suspend fun sendMessage(text: String) {
         _error.value = null
         val userMessage = UiMessage(Role.USER, text)
-        _messages.value = _messages.value + userMessage
+        _messages.value += userMessage
         ariaPreferences.setChatLastInteraction()
 
         _isGenerating.value = true
@@ -88,11 +90,11 @@ class ChatState(
                     val response = when (pendingAction) {
                         is ConfirmationAction.SaveRule -> ariaChatHandler.confirmSaveRule(pendingAction.rule)
                     }
-                    _messages.value = _messages.value + UiMessage(Role.ASSISTANT, response.text)
+                    _messages.value += UiMessage(Role.ASSISTANT, response.text)
                     return
                 } else if (lowerText.startsWith("no") || lowerText == "n") {
                     pendingConfirmation = null
-                    _messages.value = _messages.value + UiMessage(Role.ASSISTANT, "Got it, rule discarded.")
+                    _messages.value += UiMessage(Role.ASSISTANT, "Got it, rule discarded.")
                     return
                 }
                 // "Change it" or anything else falls through to the LLM
@@ -102,14 +104,14 @@ class ChatState(
             // Check for rule creation or management intents before going to the LLM.
             if (ariaChatHandler.isShowRulesIntent(text)) {
                 val response = ariaChatHandler.handleShowRules()
-                _messages.value = _messages.value + UiMessage(Role.ASSISTANT, response.text)
+                _messages.value += UiMessage(Role.ASSISTANT, response.text)
                 return
             }
 
             if (ariaChatHandler.isRuleCreationIntent(text)) {
                 val response = ariaChatHandler.handleRuleCreation(text)
                 pendingConfirmation = response.confirmationAction
-                _messages.value = _messages.value + UiMessage(
+                _messages.value += UiMessage(
                     role = Role.ASSISTANT,
                     content = response.text,
                     suggestedReplies = response.suggestedReplies,
@@ -137,11 +139,19 @@ class ChatState(
                 userMemoryDao.getRecent(20)
             }
 
+            val capabilities = withContext(Dispatchers.IO) {
+                capabilityCatalog.getCapabilities()
+            }
+            val capabilitySummary = capabilityCatalog.getCapabilitySummaryForPrompt()
+
             val systemPrompt = AriaPrompts.buildSystemPrompt(
                 signals = contextSignalManager,
                 contextKey = contextKey,
                 userMemories = memories.map { it.fact },
+                capabilitySummary = capabilitySummary,
             )
+
+            val tools = AriaPrompts.buildTools(capabilities)
 
             val chatMessages = _messages.value.map { msg ->
                 ChatMessage(role = msg.role, content = msg.content)
@@ -155,14 +165,14 @@ class ChatState(
                     provider.completeWithTools(
                         systemPrompt = systemPrompt,
                         messages = currentMessages,
-                        tools = AriaPrompts.ariaTools,
+                        tools = tools,
                     )
                 }
 
                 when (result) {
                     is LlmResult.Text -> {
                         val assistantMessage = UiMessage(Role.ASSISTANT, result.content)
-                        _messages.value = _messages.value + assistantMessage
+                        _messages.value += assistantMessage
                         break
                     }
 
@@ -170,7 +180,7 @@ class ChatState(
                         // Show any text content from the assistant
                         if (result.content.isNotBlank()) {
                             val textMsg = UiMessage(Role.ASSISTANT, result.content)
-                            _messages.value = _messages.value + textMsg
+                            _messages.value += textMsg
                         }
 
                         // Execute each tool call
@@ -184,7 +194,7 @@ class ChatState(
                             toolResults.joinToString("\n") { "${it.toolName}: ${it.result}" },
                             toolResults = toolResults,
                         )
-                        _messages.value = _messages.value + toolMessage
+                        _messages.value += toolMessage
 
                         // Feed results back to the AI for continuation
                         val toolResultText = toolResults.joinToString("\n") {
@@ -218,7 +228,7 @@ class ChatState(
     suspend fun sendMessageStreaming(text: String) {
         _error.value = null
         val userMessage = UiMessage(Role.USER, text)
-        _messages.value = _messages.value + userMessage
+        _messages.value += userMessage
         ariaPreferences.setChatLastInteraction()
 
         val provider = llmProviderManager.getProvider()
@@ -253,7 +263,7 @@ class ChatState(
             }
 
             val streamingMessage = UiMessage(Role.ASSISTANT, "")
-            _messages.value = _messages.value + streamingMessage
+            _messages.value += streamingMessage
             val messageIndex = _messages.value.size - 1
 
             val stream = provider.streamComplete(
@@ -316,7 +326,7 @@ class ChatState(
             val result = withContext(Dispatchers.IO) {
                 provider.complete(
                     systemPrompt = extractionPrompt,
-                    messages = listOf(ChatMessage(Role.USER, "Extract memories from the conversation above.")),
+                    messages = listOf(ChatMessage(Role.USER, "Extract noteworthy memories from the conversation above.")),
                 )
             }
 

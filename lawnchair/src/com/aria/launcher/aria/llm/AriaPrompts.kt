@@ -2,6 +2,7 @@ package com.aria.launcher.aria.llm
 
 import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.engine.ContextKey
+import com.aria.launcher.aria.engine.DeviceCapabilityCatalog
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -18,13 +19,22 @@ object AriaPrompts {
         recentApps: List<String> = emptyList(),
         upcomingEvents: List<String> = emptyList(),
         userMemories: List<String> = emptyList(),
+        capabilitySummary: String = "",
     ): String {
         val now = SimpleDateFormat("EEEE, MMMM d, yyyy h:mm a", Locale.getDefault()).format(Date())
         val memoriesSection = if (userMemories.isNotEmpty()) {
             """
-
             What you know about this user:
             ${userMemories.joinToString("\n") { "- $it" }}
+            """
+        } else {
+            ""
+        }
+
+        val capabilitiesSection = if (capabilitySummary.isNotEmpty()) {
+            """
+            Available device capabilities:
+            $capabilitySummary
             """
         } else {
             ""
@@ -42,14 +52,16 @@ object AriaPrompts {
             - Activity: ${signals.detectedActivity.value?.let { activityName(it) } ?: "unknown"}
             - Recent apps: ${recentApps.take(5).joinToString(", ").ifEmpty { "none" }}
             - Upcoming events: ${upcomingEvents.take(3).joinToString("; ").ifEmpty { "none" }}
+
             $memoriesSection
+
+            $capabilitiesSection
             Guidelines:
             - Keep responses concise: 1-3 sentences unless the user asks for more.
             - When taking actions, use the provided tools rather than describing what to do.
             - Prioritize actionable information over generic responses.
             - Be aware of time of day and user context when making suggestions.
             - You are in an interactive chat on the user's home screen.
-            - You can open apps, search the web, set reminders, get directions, and compose messages.
             - After using a tool, briefly confirm the action was taken.
             - Use what you know about this user to personalize your responses, but don't mention it unprompted.
         """.trimIndent()
@@ -105,7 +117,8 @@ object AriaPrompts {
         Respond with only the JSON array of skill IDs, no other text.
     """.trimIndent()
 
-    val ariaTools: List<ToolDefinition> = listOf(
+    /** The base set of tools always available in chat. */
+    val coreTools: List<ToolDefinition> = listOf(
         ToolDefinition(
             name = "open_app",
             description = "Open an installed app by package name",
@@ -153,7 +166,7 @@ object AriaPrompts {
         ),
         ToolDefinition(
             name = "get_directions",
-            description = "Get directions to a destination",
+            description = "Get directions to a destination using maps",
             inputSchema = mapOf(
                 "properties" to buildJsonObject {
                     putJsonObject("destination") {
@@ -166,12 +179,12 @@ object AriaPrompts {
         ),
         ToolDefinition(
             name = "compose_message",
-            description = "Compose a message to a contact",
+            description = "Compose a text message (SMS) to a contact",
             inputSchema = mapOf(
                 "properties" to buildJsonObject {
                     putJsonObject("contact") {
                         put("type", "string")
-                        put("description", "Contact name or number")
+                        put("description", "Contact name or phone number")
                     }
                     putJsonObject("message") {
                         put("type", "string")
@@ -184,6 +197,165 @@ object AriaPrompts {
             ),
         ),
     )
+
+    /**
+     * Builds a dynamic tool list based on what the device can actually do.
+     * Starts with [coreTools] and adds capability-backed tools.
+     */
+    fun buildTools(capabilities: List<DeviceCapabilityCatalog.AppCapability>): List<ToolDefinition> {
+        val capCategories = capabilities.map { it.category }.toSet()
+        val dynamic = mutableListOf<ToolDefinition>()
+
+        if ("phone" in capCategories) {
+            dynamic.add(
+                ToolDefinition(
+                    name = "make_call",
+                    description = "Make a phone call to a number or contact",
+                    inputSchema = mapOf(
+                        "properties" to buildJsonObject {
+                            putJsonObject("number") {
+                                put("type", "string")
+                                put("description", "Phone number to call")
+                            }
+                        },
+                        "required" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("number"))),
+                    ),
+                ),
+            )
+        }
+
+        if ("email" in capCategories) {
+            dynamic.add(
+                ToolDefinition(
+                    name = "send_email",
+                    description = "Compose and send an email",
+                    inputSchema = mapOf(
+                        "properties" to buildJsonObject {
+                            putJsonObject("to") {
+                                put("type", "string")
+                                put("description", "Recipient email address")
+                            }
+                            putJsonObject("subject") {
+                                put("type", "string")
+                                put("description", "Email subject line")
+                            }
+                            putJsonObject("body") {
+                                put("type", "string")
+                                put("description", "Email body text")
+                            }
+                        },
+                        "required" to kotlinx.serialization.json.JsonArray(
+                            listOf(JsonPrimitive("to"), JsonPrimitive("subject"), JsonPrimitive("body")),
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        if ("timer" in capCategories) {
+            dynamic.add(
+                ToolDefinition(
+                    name = "set_timer",
+                    description = "Set a countdown timer",
+                    inputSchema = mapOf(
+                        "properties" to buildJsonObject {
+                            putJsonObject("seconds") {
+                                put("type", "integer")
+                                put("description", "Duration in seconds")
+                            }
+                            putJsonObject("label") {
+                                put("type", "string")
+                                put("description", "Timer label (optional)")
+                            }
+                        },
+                        "required" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("seconds"))),
+                    ),
+                ),
+            )
+        }
+
+        if ("calendar" in capCategories) {
+            dynamic.add(
+                ToolDefinition(
+                    name = "create_event",
+                    description = "Create a calendar event",
+                    inputSchema = mapOf(
+                        "properties" to buildJsonObject {
+                            putJsonObject("title") {
+                                put("type", "string")
+                                put("description", "Event title")
+                            }
+                            putJsonObject("start_time") {
+                                put("type", "string")
+                                put("description", "Start time (ISO 8601 or natural language)")
+                            }
+                            putJsonObject("end_time") {
+                                put("type", "string")
+                                put("description", "End time (ISO 8601 or natural language, optional)")
+                            }
+                        },
+                        "required" to kotlinx.serialization.json.JsonArray(
+                            listOf(JsonPrimitive("title"), JsonPrimitive("start_time")),
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        if ("camera" in capCategories) {
+            dynamic.add(
+                ToolDefinition(
+                    name = "take_photo",
+                    description = "Open the camera to take a photo",
+                    inputSchema = mapOf(
+                        "properties" to buildJsonObject {},
+                        "required" to kotlinx.serialization.json.JsonArray(emptyList()),
+                    ),
+                ),
+            )
+        }
+
+        if ("share" in capCategories) {
+            dynamic.add(
+                ToolDefinition(
+                    name = "share_text",
+                    description = "Share text with another app",
+                    inputSchema = mapOf(
+                        "properties" to buildJsonObject {
+                            putJsonObject("text") {
+                                put("type", "string")
+                                put("description", "Text to share")
+                            }
+                        },
+                        "required" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("text"))),
+                    ),
+                ),
+            )
+        }
+
+        if ("music" in capCategories) {
+            dynamic.add(
+                ToolDefinition(
+                    name = "play_music",
+                    description = "Play music — opens a music app, optionally searching for a song or artist",
+                    inputSchema = mapOf(
+                        "properties" to buildJsonObject {
+                            putJsonObject("query") {
+                                put("type", "string")
+                                put("description", "Song, artist, or genre to search for (optional)")
+                            }
+                        },
+                        "required" to kotlinx.serialization.json.JsonArray(emptyList()),
+                    ),
+                ),
+            )
+        }
+
+        return coreTools + dynamic
+    }
+
+    /** Backward-compatible alias for code that still references ariaTools. */
+    val ariaTools: List<ToolDefinition> get() = coreTools
 
     private fun activityName(activityType: Int): String = when (activityType) {
         0 -> "in vehicle"

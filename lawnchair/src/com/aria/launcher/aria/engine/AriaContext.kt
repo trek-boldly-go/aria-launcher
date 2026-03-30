@@ -42,6 +42,9 @@ data class AriaContext(
 
     // Rules that fired for this context (populated by Session 10 evaluator)
     val firedRules: List<FiredRule> = emptyList(),
+
+    // Battery
+    val batteryLevel: Int = -1,
 ) {
     /**
      * Bucket hash for distinctUntilChanged — Brief only regenerates
@@ -55,6 +58,8 @@ data class AriaContext(
         result = 31 * result + upcomingEvents.map { it.title }.hashCode()
         result = 31 * result + (currentVenueCategory?.hashCode() ?: 0)
         result = 31 * result + firedRules.map { it.ruleId }.hashCode()
+        // Battery decile: only regenerate Brief when battery crosses a 10% boundary
+        result = 31 * result + (batteryLevel / 10)
         return result
     }
 
@@ -107,6 +112,7 @@ data class AriaContext(
                 upcomingEvents = upcomingEvents,
                 recentAppPackages = recentApps,
                 recentAppLabels = appLabels,
+                batteryLevel = snapshot.batteryLevel,
             )
         }
     }

@@ -50,9 +50,13 @@ class ContextSignalManager @Inject constructor(
     private val _nearbySSIDs = MutableStateFlow<List<String>>(emptyList())
     val nearbySSIDs: StateFlow<List<String>> = _nearbySSIDs.asStateFlow()
 
+    private val _batteryLevel = MutableStateFlow(-1)
+    val batteryLevel: StateFlow<Int> = _batteryLevel.asStateFlow()
+
     /** Call once from Application.onCreate() to seed initial state. */
     fun init() {
         _isCharging.value = readChargingState()
+        _batteryLevel.value = readBatteryLevel()
         _wifiSsid.value = readWifiSsid()
         _isAndroidAutoConnected.value = AndroidAutoReceiver.isCurrentlyInCarMode(context)
         _connectedCarName.value = AndroidAutoReceiver.lastCarName
@@ -66,6 +70,7 @@ class ContextSignalManager @Inject constructor(
 
     fun onChargingChanged(charging: Boolean) {
         _isCharging.value = charging
+        _batteryLevel.value = readBatteryLevel()
     }
 
     fun onActivityDetected(activityType: Int) {
@@ -99,6 +104,7 @@ class ContextSignalManager @Inject constructor(
         detectedActivity = _detectedActivity.value,
         isAndroidAutoConnected = _isAndroidAutoConnected.value,
         connectedCarName = _connectedCarName.value,
+        batteryLevel = _batteryLevel.value,
     )
 
     // --- Private helpers ---
@@ -108,6 +114,13 @@ class ContextSignalManager @Inject constructor(
         val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: return false
         return status == BatteryManager.BATTERY_STATUS_CHARGING ||
             status == BatteryManager.BATTERY_STATUS_FULL
+    }
+
+    private fun readBatteryLevel(): Int {
+        val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+        return if (level >= 0 && scale > 0) (level * 100) / scale else -1
     }
 
     /**
@@ -204,4 +217,5 @@ data class ContextSnapshot(
     val detectedActivity: Int?, // DetectedActivity constants: IN_VEHICLE=0, STILL=3, WALKING=7, etc.
     val isAndroidAutoConnected: Boolean = false,
     val connectedCarName: String? = null,
+    val batteryLevel: Int = -1,
 )
