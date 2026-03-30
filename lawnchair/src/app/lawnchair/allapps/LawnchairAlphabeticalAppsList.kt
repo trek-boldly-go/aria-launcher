@@ -127,4 +127,8 @@ class LawnchairAlphabeticalAppsList<T>(
     override fun onIdpChanged(modelPropertiesChanged: Boolean) {
         onAppsUpdated()
     }
+
+    fun destroy() {
+        context.launcher.deviceProfile.inv.removeOnChangeListener(this)
+    }
 }

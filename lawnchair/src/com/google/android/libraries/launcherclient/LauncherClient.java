@@ -223,6 +223,13 @@ public class LauncherClient {
 
     public void onDestroy() {
         mActivity.unregisterReceiver(googleInstallListener);
+        if (mOverlayCallback != null) {
+            mOverlayCallback.mClient = null;
+            mOverlayCallback.mWindow = null;
+            mOverlayCallback.mWindowManager = null;
+        }
+        mOverlay = null;
+        mLayoutParams = null;
     }
 
     private void connect() {

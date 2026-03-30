@@ -367,6 +367,11 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
         mActivityContext.removeOnDeviceProfileChangeListener(this);
+        for (AdapterHolder holder : mAH) {
+            if (holder.mAppsList instanceof LawnchairAlphabeticalAppsList) {
+                ((LawnchairAlphabeticalAppsList<?>) holder.mAppsList).destroy();
+            }
+        }
     }
 
     public SearchUiManager getSearchUiManager() {

@@ -444,10 +444,10 @@ class AriaHomeState @Inject constructor(
         /** Virtual package names → ordered list of real packages to try. */
         private val PACKAGE_ALIASES = mapOf(
             "weather" to listOf(
-                "com.google.android.apps.weather",         // Standalone Google Weather (Pixel)
-                "com.google.android.googlequicksearchbox",  // Google app (has weather)
-                "com.samsung.android.weather",              // Samsung Weather
-                "com.accuweather.android",                  // AccuWeather
+                "com.google.android.apps.weather", // Standalone Google Weather (Pixel)
+                "com.google.android.googlequicksearchbox", // Google app (has weather)
+                "com.samsung.android.weather", // Samsung Weather
+                "com.accuweather.android", // AccuWeather
             ),
         )
         private const val BOOST_SCORE_DELTA = 1000f // rule-boosted apps float to the top

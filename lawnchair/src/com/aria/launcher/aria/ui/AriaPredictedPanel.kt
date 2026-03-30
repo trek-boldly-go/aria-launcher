@@ -121,19 +121,21 @@ private fun AriaPanelContent(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.Top,
     ) {
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         ChatPill(onClick = { showChat = true })
 
+        if (briefItems.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+
+            AriaBrief(
+                items = briefItems,
+                onActionClick = { action -> state.executeAction(action) },
+                onItemDismiss = { item -> state.dismissItem(item) },
+            )
+        }
+
         Spacer(modifier = Modifier.height(12.dp))
-
-        AriaBrief(
-            items = briefItems,
-            onActionClick = { action -> state.executeAction(action) },
-            onItemDismiss = { item -> state.dismissItem(item) },
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
 
         if (predictedApps.isNotEmpty()) {
             PredictedAppsRow(
