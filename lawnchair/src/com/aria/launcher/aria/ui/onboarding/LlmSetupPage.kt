@@ -70,12 +70,15 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import com.aria.launcher.aria.llm.AuthConfig
 import com.aria.launcher.aria.llm.GeminiProvider
 import com.aria.launcher.aria.llm.LiteRtLmProvider
 import com.aria.launcher.aria.llm.LiteRtModelManager
 import com.aria.launcher.aria.llm.LlmProviderManager
 import com.aria.launcher.aria.llm.LlmResult
 import com.aria.launcher.aria.llm.ModelDownloadState
+import com.aria.launcher.aria.llm.OllamaModel
+import com.aria.launcher.aria.llm.OllamaProvider
 import com.aria.launcher.aria.llm.OnDeviceModel
 import com.aria.launcher.aria.llm.ProviderType
 import kotlinx.coroutines.Dispatchers
@@ -871,6 +874,13 @@ private fun ClaudeSetupSubPage(
 
 // ── Ollama Sub-Page ──
 
+private enum class OllamaAuthType(val label: String) {
+    NONE("None"),
+    BASIC("Basic Auth"),
+    BEARER("Bearer"),
+    CUSTOM("Headers"),
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun OllamaSetupSubPage(
@@ -884,6 +894,19 @@ private fun OllamaSetupSubPage(
     var testResult by remember { mutableStateOf<String?>(null) }
     var isTesting by remember { mutableStateOf(false) }
 
+    // Auth state
+    var authType by remember { mutableStateOf(OllamaAuthType.NONE) }
+    var basicUser by remember { mutableStateOf("") }
+    var basicPass by remember { mutableStateOf("") }
+    var bearerToken by remember { mutableStateOf("") }
+    var customHeaders by remember { mutableStateOf(listOf("" to "")) }
+
+    // Model selector state
+    var availableModels by remember { mutableStateOf<List<OllamaModel>>(emptyList()) }
+    var selectedModelName by remember { mutableStateOf("") }
+    var modelFetchError by remember { mutableStateOf<String?>(null) }
+    var isFetchingModels by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
         SubPageBackButton(onBack = onBack)
         Spacer(modifier = Modifier.height(8.dp))
@@ -895,7 +918,8 @@ private fun OllamaSetupSubPage(
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Enter the URL of your Ollama server. This is a self-hosted server on your network, not on this phone.",
+            text = "Enter the URL of your Ollama server. This is a self-hosted server " +
+                "on your network, not on this phone.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -910,8 +934,234 @@ private fun OllamaSetupSubPage(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
-        Spacer(modifier = Modifier.height(12.dp))
 
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ── Auth section ──
+        Text(
+            text = "Authentication",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Add authentication if your server is behind a reverse proxy " +
+                "(Traefik, Nginx, Caddy, Cloudflare Tunnel, etc.)",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            OllamaAuthType.entries.forEachIndexed { index, type ->
+                SegmentedButton(
+                    selected = authType == type,
+                    onClick = { authType = type },
+                    shape = SegmentedButtonDefaults.itemShape(
+                        index = index,
+                        count = OllamaAuthType.entries.size,
+                    ),
+                ) {
+                    Text(type.label, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        when (authType) {
+            OllamaAuthType.NONE -> { /* no fields */ }
+
+            OllamaAuthType.BASIC -> {
+                OutlinedTextField(
+                    value = basicUser,
+                    onValueChange = { basicUser = it },
+                    label = { Text("Username") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = basicPass,
+                    onValueChange = { basicPass = it },
+                    label = { Text("Password") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                )
+            }
+
+            OllamaAuthType.BEARER -> {
+                OutlinedTextField(
+                    value = bearerToken,
+                    onValueChange = { bearerToken = it },
+                    label = { Text("Bearer token") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                )
+            }
+
+            OllamaAuthType.CUSTOM -> {
+                Text(
+                    text = "Custom headers (e.g., Cloudflare Access)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                customHeaders.forEachIndexed { idx, (key, value) ->
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        OutlinedTextField(
+                            value = key,
+                            onValueChange = { newKey ->
+                                customHeaders = customHeaders.toMutableList().also {
+                                    it[idx] = newKey to value
+                                }
+                            },
+                            label = { Text("Header") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                        )
+                        OutlinedTextField(
+                            value = value,
+                            onValueChange = { newVal ->
+                                customHeaders = customHeaders.toMutableList().also {
+                                    it[idx] = key to newVal
+                                }
+                            },
+                            label = { Text("Value") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+                TextButton(
+                    onClick = {
+                        customHeaders = customHeaders + ("" to "")
+                    },
+                ) {
+                    Text("+ Add header")
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ── Model selector ──
+        Text(
+            text = "Model",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedButton(
+                onClick = {
+                    if (serverUrl.isBlank()) {
+                        Toast.makeText(context, "Enter a server URL first", Toast.LENGTH_SHORT).show()
+                        return@OutlinedButton
+                    }
+                    isFetchingModels = true
+                    modelFetchError = null
+                    scope.launch {
+                        val authConfig = buildAuthConfig(authType, basicUser, basicPass, bearerToken, customHeaders)
+                        val result = withContext(Dispatchers.IO) {
+                            llmProviderManager.fetchOllamaModels(serverUrl, authConfig)
+                        }
+                        result.onSuccess { models ->
+                            availableModels = models
+                            if (selectedModelName.isBlank() && models.isNotEmpty()) {
+                                selectedModelName = models.first().name
+                            }
+                            modelFetchError = null
+                        }.onFailure { e ->
+                            modelFetchError = LlmProviderManager.humanizeError(
+                                e.message ?: "Unknown error",
+                                ProviderType.OLLAMA,
+                            )
+                        }
+                        isFetchingModels = false
+                    }
+                },
+                enabled = !isFetchingModels,
+            ) {
+                Text("Fetch models")
+            }
+            if (isFetchingModels) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            }
+        }
+
+        if (modelFetchError != null) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = modelFetchError!!,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
+        if (availableModels.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            availableModels.forEach { model ->
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { selectedModelName = model.name },
+                    color = if (selectedModelName == model.name) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (selectedModelName == model.name) {
+                            Icon(
+                                imageVector = Icons.Rounded.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Text(
+                            text = model.displayString,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+            }
+        }
+
+        // Manual model input as fallback
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = selectedModelName,
+            onValueChange = { selectedModelName = it },
+            label = { Text("Model name") },
+            placeholder = { Text("qwen2.5:7b") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ── Save & Test ──
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -925,10 +1175,13 @@ private fun OllamaSetupSubPage(
                     isTesting = true
                     testResult = null
                     scope.launch {
+                        val authConfig = buildAuthConfig(authType, basicUser, basicPass, bearerToken, customHeaders)
                         withContext(Dispatchers.IO) {
                             llmProviderManager.configureProvider(
                                 type = ProviderType.OLLAMA,
                                 serverUrl = serverUrl,
+                                modelId = selectedModelName.ifBlank { null },
+                                authConfig = authConfig,
                             )
                         }
                         testResult = runProviderTest(llmProviderManager)
@@ -949,6 +1202,28 @@ private fun OllamaSetupSubPage(
         TestResultDisplay(testResult = testResult, isTesting = false)
 
         Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+/** Build an [AuthConfig] from the Ollama setup UI state. */
+private fun buildAuthConfig(
+    authType: OllamaAuthType,
+    basicUser: String,
+    basicPass: String,
+    bearerToken: String,
+    customHeaders: List<Pair<String, String>>,
+): AuthConfig = when (authType) {
+    OllamaAuthType.NONE -> AuthConfig.None
+
+    OllamaAuthType.BASIC -> AuthConfig.Basic(basicUser, basicPass)
+
+    OllamaAuthType.BEARER -> AuthConfig.BearerToken(bearerToken)
+
+    OllamaAuthType.CUSTOM -> {
+        val headers = customHeaders
+            .filter { (k, v) -> k.isNotBlank() && v.isNotBlank() }
+            .associate { (k, v) -> k to v }
+        if (headers.isEmpty()) AuthConfig.None else AuthConfig.CustomHeaders(headers)
     }
 }
 

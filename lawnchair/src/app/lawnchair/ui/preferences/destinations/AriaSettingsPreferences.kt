@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -49,7 +51,10 @@ import com.aria.launcher.aria.llm.LlmProviderManager
 import com.aria.launcher.aria.llm.LlmResult
 import com.aria.launcher.aria.llm.ModelDownloadState
 import com.aria.launcher.aria.llm.OnDeviceModel
+import com.aria.launcher.aria.llm.ProviderStatus
 import com.aria.launcher.aria.llm.ProviderType
+import com.aria.launcher.aria.llm.displayName
+import com.aria.launcher.aria.llm.isLocal
 import com.aria.launcher.aria.scheduler.ModelDownloadWorker
 import com.aria.launcher.aria.ui.AriaHomeState
 import dagger.hilt.EntryPoint
@@ -92,6 +97,8 @@ fun AriaSettingsPreferences(
     val workWifi by prefs.workWifiSsid.collectAsState(initial = null)
     val isRightHanded by prefs.isRightHanded.collectAsState(initial = true)
     val providerType by entryPoint.llmProviderManager().activeProviderType.collectAsState(initial = null)
+    val providerStatus by entryPoint.llmProviderManager().providerStatus
+        .collectAsState(initial = null)
 
     var homeWifiInput by remember(homeWifi) { mutableStateOf(homeWifi ?: "") }
     var workWifiInput by remember(workWifi) { mutableStateOf(workWifi ?: "") }
@@ -178,7 +185,16 @@ fun AriaSettingsPreferences(
             Item {
                 ClickablePreference(
                     label = "Active provider",
-                    subtitle = providerType?.name ?: "Not configured",
+                    subtitle = providerStatus?.let { s ->
+                        buildString {
+                            append(if (s.isLocal) "[Local] " else "[Cloud] ")
+                            append(s.displayName)
+                            s.modelId?.let { append(" \u00b7 $it") }
+                            if (s.type == ProviderType.OLLAMA) {
+                                s.serverUrl?.let { append(" \u00b7 $it") }
+                            }
+                        }
+                    } ?: "Not configured",
                     onClick = {},
                 )
             }
@@ -507,6 +523,30 @@ fun AriaSettingsPreferences(
                     )
                 }
             }
+            if (providerType == ProviderType.LITERT) {
+                val fallbackType by entryPoint.llmProviderManager().fallbackProviderType
+                    .collectAsState(initial = null)
+                fallbackType?.let { fallback ->
+                    Item {
+                        ClickablePreference(
+                            label = "Switch back to ${fallback.displayName}",
+                            subtitle = "Restore previous cloud/remote provider",
+                            onClick = {
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        entryPoint.llmProviderManager().restoreFallbackProvider()
+                                    }
+                                    Toast.makeText(
+                                        context,
+                                        "Switched to ${fallback.displayName}",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            },
+                        )
+                    }
+                }
+            }
         }
 
         PreferenceGroup(heading = "WiFi Labels") {
@@ -576,6 +616,65 @@ fun AriaSettingsPreferences(
                     label = "ARIA Rules",
                     subtitle = "View and manage rules created from chat",
                     onClick = { navController.navigate(AriaRules) },
+                )
+            }
+        }
+
+        PreferenceGroup(heading = "Editorial Prompt") {
+            val editorialTemplate by prefs.editorialPromptTemplate
+                .collectAsState(initial = AriaPreferences.DEFAULT_EDITORIAL_PROMPT)
+            var templateInput by remember(editorialTemplate) {
+                mutableStateOf(editorialTemplate)
+            }
+
+            // Auto-save with 2s debounce
+            LaunchedEffect(Unit) {
+                snapshotFlow { templateInput }
+                    .drop(1)
+                    .debounce(2000L)
+                    .collect { value ->
+                        withContext(Dispatchers.IO) {
+                            prefs.setEditorialPromptTemplate(value)
+                        }
+                    }
+            }
+
+            Item {
+                OutlinedTextField(
+                    value = templateInput,
+                    onValueChange = { templateInput = it },
+                    label = { Text("System prompt template") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(240.dp),
+                    maxLines = 50,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Item {
+                Text(
+                    text = "Variables: \${time}, \${time_bucket}, \${day_type}, \${location}, " +
+                        "\${activity}, \${charging}, \${vehicle}, \${weather}, \${calendar}, " +
+                        "\${recent_apps}, \${recent_packages}, \${venue}, \${rules}, " +
+                        "\${visit_context}, \${capabilities}, \${notifications}, " +
+                        "\${battery}, \${typical_apps}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Item {
+                ClickablePreference(
+                    label = "Reset to default",
+                    subtitle = "Restore the built-in editorial prompt",
+                    confirmationText = "This will replace your custom prompt with the default. Continue?",
+                    onClick = {
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                prefs.setEditorialPromptTemplate(AriaPreferences.DEFAULT_EDITORIAL_PROMPT)
+                            }
+                            Toast.makeText(context, "Prompt reset to default", Toast.LENGTH_SHORT).show()
+                        }
+                    },
                 )
             }
         }

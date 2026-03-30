@@ -30,6 +30,7 @@ class LiteRtLmProvider @Inject constructor(
 
     @Volatile private var activeBackend: String = "GPU"
     private val warmUpMutex = Mutex()
+
     /** LiteRT only supports one conversation at a time — serialize all inference calls. */
     private val sessionMutex = Mutex()
 

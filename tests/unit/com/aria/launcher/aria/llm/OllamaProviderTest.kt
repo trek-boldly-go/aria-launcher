@@ -89,12 +89,116 @@ class OllamaProviderTest {
         assertThat(url).endsWith("/api/chat")
     }
 
+    // ── Auth header tests ──
+
     @Test
-    fun `completeWithTools falls back to tool descriptions in system prompt`() = runTest {
+    fun `no auth sends no Authorization header`() = runTest {
+        val provider = OllamaProvider(
+            client, json, "http://192.168.1.100:11434",
+            authConfig = AuthConfig.None,
+        )
+        val requestCaptor = argumentCaptor<Request>()
+        mockExecuteResponse(200, SIMPLE_RESPONSE, requestCaptor)
+
+        provider.complete("system", listOf(ChatMessage(Role.USER, "hello")))
+
+        val request = requestCaptor.firstValue
+        assertThat(request.header("Authorization")).isNull()
+    }
+
+    @Test
+    fun `basic auth sends correct Authorization header`() = runTest {
+        val provider = OllamaProvider(
+            client, json, "http://192.168.1.100:11434",
+            authConfig = AuthConfig.Basic("user", "pass"),
+        )
+        val requestCaptor = argumentCaptor<Request>()
+        mockExecuteResponse(200, SIMPLE_RESPONSE, requestCaptor)
+
+        provider.complete("system", listOf(ChatMessage(Role.USER, "hello")))
+
+        val request = requestCaptor.firstValue
+        val authHeader = request.header("Authorization")
+        assertThat(authHeader).isNotNull()
+        assertThat(authHeader).startsWith("Basic ")
+        // "user:pass" base64 = "dXNlcjpwYXNz"
+        assertThat(authHeader).isEqualTo("Basic dXNlcjpwYXNz")
+    }
+
+    @Test
+    fun `bearer auth sends correct Authorization header`() = runTest {
+        val provider = OllamaProvider(
+            client, json, "http://192.168.1.100:11434",
+            authConfig = AuthConfig.BearerToken("mytoken123"),
+        )
+        val requestCaptor = argumentCaptor<Request>()
+        mockExecuteResponse(200, SIMPLE_RESPONSE, requestCaptor)
+
+        provider.complete("system", listOf(ChatMessage(Role.USER, "hello")))
+
+        val request = requestCaptor.firstValue
+        assertThat(request.header("Authorization")).isEqualTo("Bearer mytoken123")
+    }
+
+    @Test
+    fun `custom headers sends all configured headers`() = runTest {
+        val provider = OllamaProvider(
+            client, json, "http://192.168.1.100:11434",
+            authConfig = AuthConfig.CustomHeaders(
+                mapOf(
+                    "CF-Access-Client-Id" to "abc",
+                    "CF-Access-Client-Secret" to "xyz",
+                ),
+            ),
+        )
+        val requestCaptor = argumentCaptor<Request>()
+        mockExecuteResponse(200, SIMPLE_RESPONSE, requestCaptor)
+
+        provider.complete("system", listOf(ChatMessage(Role.USER, "hello")))
+
+        val request = requestCaptor.firstValue
+        assertThat(request.header("CF-Access-Client-Id")).isEqualTo("abc")
+        assertThat(request.header("CF-Access-Client-Secret")).isEqualTo("xyz")
+    }
+
+    // ── Native tool calling tests ──
+
+    @Test
+    fun `completeWithTools sends native tools array`() = runTest {
+        val provider = OllamaProvider(client, json, "http://192.168.1.100:11434")
+        val requestCaptor = argumentCaptor<Request>()
+        mockExecuteResponse(
+            200,
+            """{"message":{"role":"assistant","content":"I'll check the weather","tool_calls":[{"function":{"name":"get_weather","arguments":{"location":"NYC"}}}]}}""",
+            requestCaptor,
+        )
+
+        val tools = listOf(
+            ToolDefinition(
+                "get_weather",
+                "Get weather",
+                mapOf("type" to json.parseToJsonElement("\"object\"")),
+            ),
+        )
+        val result = provider.completeWithTools("system", listOf(ChatMessage(Role.USER, "weather?")), tools)
+
+        // Verify the request body contains tools
+        val requestBody = requestCaptor.firstValue.body
+        assertThat(requestBody).isNotNull()
+
+        // Verify we get a ToolUse result
+        assertThat(result).isInstanceOf(LlmResult.ToolUse::class.java)
+        val toolUse = result as LlmResult.ToolUse
+        assertThat(toolUse.toolCalls).hasSize(1)
+        assertThat(toolUse.toolCalls[0].name).isEqualTo("get_weather")
+    }
+
+    @Test
+    fun `completeWithTools returns text when no tool_calls in response`() = runTest {
         val provider = OllamaProvider(client, json, "http://192.168.1.100:11434")
         mockExecuteResponse(
             200,
-            """{"message":{"role":"assistant","content":"I'll use the tool"}}""",
+            """{"message":{"role":"assistant","content":"I don't need any tools for this."}}""",
         )
 
         val tools = listOf(
@@ -103,7 +207,81 @@ class OllamaProviderTest {
         val result = provider.completeWithTools("system", listOf(ChatMessage(Role.USER, "hello")), tools)
 
         assertThat(result).isInstanceOf(LlmResult.Text::class.java)
+        assertThat((result as LlmResult.Text).content).isEqualTo("I don't need any tools for this.")
     }
+
+    // ── Model list tests ──
+
+    @Test
+    fun `fetchAvailableModels parses response`() = runTest {
+        mockExecuteResponse(
+            200,
+            """{
+                "models": [
+                    {
+                        "name": "llama3.1:8b",
+                        "size": 4700000000,
+                        "details": {
+                            "parameter_size": "8B",
+                            "quantization_level": "Q4_0"
+                        }
+                    },
+                    {
+                        "name": "qwen2.5:7b",
+                        "size": 4100000000,
+                        "details": {
+                            "parameter_size": "7B",
+                            "quantization_level": "Q4_K_M"
+                        }
+                    }
+                ]
+            }""",
+        )
+
+        val result = OllamaProvider.fetchAvailableModels(
+            client, "http://192.168.1.100:11434",
+        )
+
+        assertThat(result.isSuccess).isTrue()
+        val models = result.getOrThrow()
+        assertThat(models).hasSize(2)
+        assertThat(models[0].name).isEqualTo("llama3.1:8b")
+        assertThat(models[0].parameterSize).isEqualTo("8B")
+        assertThat(models[1].name).isEqualTo("qwen2.5:7b")
+    }
+
+    @Test
+    fun `fetchAvailableModels returns failure on HTTP error`() = runTest {
+        mockExecuteResponse(401, """{"error":"unauthorized"}""")
+
+        val result = OllamaProvider.fetchAvailableModels(
+            client, "http://192.168.1.100:11434",
+        )
+
+        assertThat(result.isFailure).isTrue()
+        assertThat(result.exceptionOrNull()?.message).contains("401")
+    }
+
+    @Test
+    fun `fetchAvailableModels returns failure on malformed response`() = runTest {
+        mockExecuteResponse(200, """{"not_models": []}""")
+
+        val result = OllamaProvider.fetchAvailableModels(
+            client, "http://192.168.1.100:11434",
+        )
+
+        assertThat(result.isFailure).isTrue()
+        assertThat(result.exceptionOrNull()?.message).contains("Unexpected response format")
+    }
+
+    @Test
+    fun `OllamaModel displaySize formats correctly`() {
+        assertThat(OllamaModel("test", 4_700_000_000L).displaySize).isEqualTo("4.7 GB")
+        assertThat(OllamaModel("test", 500_000_000L).displaySize).isEqualTo("500 MB")
+        assertThat(OllamaModel("test", 1_000_000_000L).displaySize).isEqualTo("1.0 GB")
+    }
+
+    // ── Helpers ──
 
     private fun mockExecuteResponse(
         code: Int,
@@ -124,5 +302,10 @@ class OllamaProviderTest {
             .body(body.toResponseBody("application/json".toMediaType()))
             .build()
         whenever(mockCall.execute()).thenReturn(response)
+    }
+
+    companion object {
+        private const val SIMPLE_RESPONSE =
+            """{"message":{"role":"assistant","content":"ok"}}"""
     }
 }

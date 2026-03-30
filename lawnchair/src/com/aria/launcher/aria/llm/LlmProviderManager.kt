@@ -30,6 +30,26 @@ enum class ProviderType {
     LITERT,
 }
 
+val ProviderType.displayName: String get() = when (this) {
+    ProviderType.CLAUDE_API_KEY -> "Claude"
+    ProviderType.CLAUDE_OAUTH -> "Claude (OAuth)"
+    ProviderType.GEMINI -> "Gemini"
+    ProviderType.OLLAMA -> "Ollama"
+    ProviderType.OPENAI_COMPATIBLE -> "OpenAI Compatible"
+    ProviderType.OPEN_ROUTER -> "OpenRouter"
+    ProviderType.LITERT -> "On-device"
+}
+
+val ProviderType.isLocal: Boolean get() = this == ProviderType.LITERT
+
+data class ProviderStatus(
+    val type: ProviderType,
+    val displayName: String,
+    val isLocal: Boolean,
+    val modelId: String?,
+    val serverUrl: String?,
+)
+
 @Singleton
 class LlmProviderManager @Inject constructor(
     private val context: Context,
@@ -69,6 +89,7 @@ class LlmProviderManager @Inject constructor(
         serverUrl: String? = null,
         modelId: String? = null,
         refreshToken: String? = null,
+        authConfig: AuthConfig? = null,
     ) {
         context.llmPrefsStore.edit { prefs ->
             // When switching to LITERT, save the current remote provider as fallback
@@ -84,6 +105,7 @@ class LlmProviderManager @Inject constructor(
             serverUrl?.let { prefs[KEY_SERVER_URL] = it }
             modelId?.let { prefs[KEY_MODEL_ID] = it }
             refreshToken?.let { prefs[KEY_REFRESH_TOKEN] = it }
+            authConfig?.let { prefs[KEY_AUTH_CONFIG] = it.encode() }
         }
         cachedProvider = null
     }
@@ -100,6 +122,54 @@ class LlmProviderManager @Inject constructor(
     fun clearCache() {
         cachedProvider = null
     }
+
+    /** The previously active remote provider, saved when switching to LITERT. */
+    val fallbackProviderType: Flow<ProviderType?> = context.llmPrefsStore.data
+        .map { prefs ->
+            prefs[KEY_FALLBACK_PROVIDER]?.let { runCatching { ProviderType.valueOf(it) }.getOrNull() }
+        }
+
+    /** Switch back from LITERT to the previously saved remote provider. */
+    suspend fun restoreFallbackProvider(): Boolean {
+        val prefs = context.llmPrefsStore.data.first()
+        val fallbackType = prefs[KEY_FALLBACK_PROVIDER]?.let {
+            runCatching { ProviderType.valueOf(it) }.getOrNull()
+        } ?: return false
+        context.llmPrefsStore.edit { p ->
+            p[KEY_PROVIDER_TYPE] = fallbackType.name
+        }
+        cachedProvider = null
+        return true
+    }
+
+    /** Rich status for the active provider, suitable for UI display. */
+    val providerStatus: Flow<ProviderStatus?> = context.llmPrefsStore.data
+        .map { prefs ->
+            val type = prefs[KEY_PROVIDER_TYPE]?.let {
+                runCatching { ProviderType.valueOf(it) }.getOrNull()
+            } ?: return@map null
+            ProviderStatus(
+                type = type,
+                displayName = type.displayName,
+                isLocal = type.isLocal,
+                modelId = prefs[KEY_MODEL_ID],
+                serverUrl = prefs[KEY_SERVER_URL],
+            )
+        }
+
+    /** The saved auth config, for pre-filling Ollama setup UI. */
+    val savedAuthConfig: Flow<AuthConfig> = context.llmPrefsStore.data
+        .map { prefs -> AuthConfig.decode(prefs[KEY_AUTH_CONFIG]) }
+
+    /** The saved server URL, for pre-filling Ollama setup UI. */
+    val savedServerUrl: Flow<String?> = context.llmPrefsStore.data
+        .map { prefs -> prefs[KEY_SERVER_URL] }
+
+    /** Fetch available models from an Ollama server. */
+    suspend fun fetchOllamaModels(
+        serverUrl: String,
+        authConfig: AuthConfig = AuthConfig.None,
+    ): Result<List<OllamaModel>> = OllamaProvider.fetchAvailableModels(client, serverUrl, authConfig)
 
     val selectedOnDeviceModel: Flow<OnDeviceModel> = context.llmPrefsStore.data
         .map { prefs ->
@@ -201,6 +271,7 @@ class LlmProviderManager @Inject constructor(
                 json = json,
                 serverUrl = serverUrl,
                 modelId = modelId ?: "qwen2.5:7b",
+                authConfig = AuthConfig.decode(prefs[KEY_AUTH_CONFIG]),
             )
 
             ProviderType.OPENAI_COMPATIBLE -> OpenAICompatibleProvider(
@@ -246,16 +317,24 @@ class LlmProviderManager @Inject constructor(
         private val KEY_MODEL_ID = stringPreferencesKey("model_id")
         private val KEY_REFRESH_TOKEN = stringPreferencesKey("refresh_token")
         private val KEY_FALLBACK_PROVIDER = stringPreferencesKey("fallback_provider")
+        private val KEY_AUTH_CONFIG = stringPreferencesKey("auth_config")
         private val KEY_HF_TOKEN = stringPreferencesKey("hf_token")
         private val KEY_ON_DEVICE_MODEL = stringPreferencesKey("on_device_model")
 
         /** Convert raw error strings into plain English for display to users. */
-        fun humanizeError(raw: String): String = when {
-            "401" in raw || "Unauthorized" in raw ->
-                "Invalid API key. Double-check that you copied the full key."
+        fun humanizeError(raw: String, providerType: ProviderType? = null): String = when {
+            "401" in raw || "Unauthorized" in raw -> when (providerType) {
+                ProviderType.OLLAMA -> "Authentication failed. Check your reverse proxy credentials."
+                else -> "Invalid API key. Double-check that you copied the full key."
+            }
 
-            "403" in raw || "Forbidden" in raw ->
-                "This API key doesn\u2019t have permission. Check your account at the provider\u2019s website."
+            "403" in raw || "Forbidden" in raw -> when (providerType) {
+                ProviderType.OLLAMA -> "Access denied. Check your reverse proxy auth settings."
+                else -> "This API key doesn\u2019t have permission. Check your account at the provider\u2019s website."
+            }
+
+            "404" in raw && "api/tags" in raw.lowercase() ->
+                "Endpoint not found. Verify the server URL points to an Ollama instance."
 
             "429" in raw || "rate" in raw.lowercase() ->
                 "Rate limited \u2014 too many requests. Wait a minute and try again."
@@ -274,6 +353,9 @@ class LlmProviderManager @Inject constructor(
 
             "SSL" in raw || "certificate" in raw.lowercase() ->
                 "SSL/certificate error. Check that the server URL uses the correct protocol."
+
+            "Unexpected response format" in raw || "Failed to parse" in raw ->
+                "Unexpected response. The URL may point to a proxy login page instead of Ollama."
 
             else -> "Connection failed: ${raw.take(200)}"
         }
