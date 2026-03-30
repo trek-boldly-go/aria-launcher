@@ -87,6 +87,7 @@ class LawnchairApp :
         instance = this
         QuickStepContract.sRecentsDisabled = !recentsEnabled
         Flowerpot.Manager.getInstance(this)
+        registerActivityLifecycleCallbacks(activityHandler)
 
         // ARIA: seed context signals and start periodic collection + nightly prediction
         contextSignalManager.init()
@@ -118,10 +119,6 @@ class LawnchairApp :
             Settings.Secure.putString(contentResolver, "icon_blacklist", newBlacklist)
         } catch (_: Exception) {
         }
-    }
-
-    fun onLauncherAppStateCreated() {
-        registerActivityLifecycleCallbacks(activityHandler)
     }
 
     fun restart(recreateLauncher: Boolean = true) {

@@ -2,12 +2,12 @@
 jdkRelease = "21"
 
 agp = "9.1.0"
-kotlin = "2.3.10"
+kotlin = "2.3.20"
 androidx-room = "2.8.4"
 androidx-lifecycle = "2.10.0"
 accompanist = "0.37.3"
 opto = "1.0.18"
-protobuf = "4.34.0"
+protobuf = "4.34.1"
 retrofit = "3.0.0"
 dagger = "2.59.2"
 androidx-work = "2.10.0"
@@ -20,7 +20,7 @@ refine = "4.4.0"
 guava = "33.5.0-android"
 junitVersion = "4.13.2"
 mockito = "5.23.0"
-mockitoKotlin = "6.2.3"
+mockitoKotlin = "6.3.0"
 truth = "1.4.5"
 testRules = "1.7.0"
 testRunner = "1.7.0"
@@ -38,7 +38,7 @@ google-ksp = "com.google.devtools.ksp:2.3.4"
 google-protobuf = "com.google.protobuf:0.9.6"
 cash-licensee = "app.cash.licensee:1.14.1"
 rikka-refine = { id = "dev.rikka.tools.refine", version.ref = "refine" }
-diffplug-spotless = "com.diffplug.spotless:8.3.0"
+diffplug-spotless = "com.diffplug.spotless:8.4.0"
 dagger-hilt-android-plugin = { id = "com.google.dagger.hilt.android", version.ref = "dagger" }
 
 [libraries]
@@ -70,11 +70,11 @@ androidx-uiautomator = "androidx.test.uiautomator:uiautomator:2.3.0"
 androidx-window = "androidx.window:window:1.5.1"
 
 # Compose
-compose-bom = "androidx.compose:compose-bom:2026.03.00"
+compose-bom = "androidx.compose:compose-bom:2026.03.01"
 compose-foundation = { module = "androidx.compose.foundation:foundation" }
 compose-foundation-layout = { module = "androidx.compose.foundation:foundation-layout" }
 compose-material-icons = "androidx.compose.material:material-icons-extended:1.7.8"
-compose-material3 = "androidx.compose.material3:material3:1.5.0-alpha15"
+compose-material3 = "androidx.compose.material3:material3:1.5.0-alpha16"
 compose-material3-windowSizeClass = { module = "androidx.compose.material3:material3-window-size-class" }
 compose-runtime-livedata = { module = "androidx.compose.runtime:runtime-livedata" }
 compose-ui = { module = "androidx.compose.ui:ui" }
