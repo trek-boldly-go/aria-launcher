@@ -25,7 +25,7 @@ class CalendarBriefSource @Inject constructor() : BriefDataSource {
         val now = context.timestampMs
         return context.upcomingEvents
             .filter { it.startTimeMs > now }
-            .take(2)
+            .take(5)
             .map { it.toBriefItem(now) }
     }
 
@@ -43,6 +43,14 @@ class CalendarBriefSource @Inject constructor() : BriefDataSource {
                     val hours = minutesUntil / 60
                     val mins = minutesUntil % 60
                     if (mins == 0L) "In ${hours}h" else "In ${hours}h ${mins}m"
+                }
+
+                minutesUntil < 10080 -> {
+                    val days = minutesUntil / 1440
+                    val hours = minutesUntil / 60
+                    val mins = minutesUntil % 60
+
+                    "In ${days}d ${hours}h ${mins}m"
                 }
 
                 else -> "In 2 hours"

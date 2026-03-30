@@ -57,6 +57,14 @@ class AriaNotificationListener : NotificationListenerService() {
         }
     }
 
+    override fun onDestroy() {
+        onListenerDisconnected()
+        try {
+            requestUnbind()
+        } catch (_: Exception) { }
+        super.onDestroy()
+    }
+
     private fun StatusBarNotification.toAriaNotification(): AriaNotification {
         val extras = notification.extras
         return AriaNotification(

@@ -5,6 +5,7 @@ import com.aria.launcher.aria.ui.brief.sources.CalendarBriefSource
 import com.aria.launcher.aria.ui.brief.sources.MediaBriefSource
 import com.aria.launcher.aria.ui.brief.sources.NotificationBriefSource
 import com.aria.launcher.aria.ui.brief.sources.SkillBridgeSource
+import com.aria.launcher.aria.ui.brief.sources.UsagePatternBriefSource
 import com.aria.launcher.aria.ui.brief.sources.VenueBriefSource
 import com.aria.launcher.aria.ui.brief.sources.WeatherBriefSource
 import dagger.Module
@@ -33,6 +34,7 @@ object BriefModule {
         venueBriefSource: VenueBriefSource,
         skillBridgeSource: SkillBridgeSource,
         weatherBriefSource: WeatherBriefSource,
+        usagePatternBriefSource: UsagePatternBriefSource,
     ): List<@JvmSuppressWildcards BriefDataSource> = listOf(
         calendarBriefSource,
         notificationBriefSource,
@@ -40,5 +42,6 @@ object BriefModule {
         venueBriefSource,
         skillBridgeSource,
         weatherBriefSource,
+        usagePatternBriefSource,
     )
 }

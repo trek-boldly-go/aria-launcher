@@ -2,6 +2,9 @@
 package com.aria.launcher.aria.engine
 
 import android.util.Log
+import com.aria.launcher.aria.data.AriaNotificationListener
+import com.aria.launcher.aria.data.AriaPreferences
+import com.aria.launcher.aria.data.UsageDataRepository
 import com.aria.launcher.aria.data.WeatherProvider
 import com.aria.launcher.aria.llm.ChatMessage
 import com.aria.launcher.aria.llm.EditorialPrompts
@@ -33,6 +36,9 @@ class BriefEditorialEngine @Inject constructor(
     private val llmProviderManager: LlmProviderManager,
     private val json: Json,
     private val weatherProvider: WeatherProvider,
+    private val ariaPreferences: AriaPreferences,
+    private val capabilityCatalog: DeviceCapabilityCatalog,
+    private val usageDataRepository: UsageDataRepository,
 ) {
     /**
      * Generates a curated Brief via LLM editorial.
@@ -42,7 +48,19 @@ class BriefEditorialEngine @Inject constructor(
         val provider = llmProviderManager.getProvider() ?: return null
 
         val weather = weatherProvider.getWeather()
-        val systemPrompt = EditorialPrompts.buildEditorialSystemPrompt(context, weather)
+        val capabilities = capabilityCatalog.getCapabilitySummaryForPrompt()
+        val notifications = buildNotificationSummary()
+        val typicalApps = buildTypicalAppsSummary(context)
+        val template = ariaPreferences.getEditorialPromptTemplate()
+        val variables = EditorialPrompts.buildVariables(
+            context = context,
+            weather = weather,
+            capabilities = capabilities,
+            notifications = notifications,
+            typicalApps = typicalApps,
+        )
+        val systemPrompt = EditorialPrompts.resolveTemplate(template, variables)
+
         val result = provider.complete(
             systemPrompt = systemPrompt,
             messages = listOf(ChatMessage(Role.USER, "Generate the Brief for this context.")),
@@ -71,7 +89,9 @@ class BriefEditorialEngine @Inject constructor(
             val briefArray = root["brief"]?.jsonArray ?: return emptyList()
             briefArray.mapNotNull { element ->
                 runCatching { parseBriefItem(element.jsonObject) }.getOrNull()
-            }.take(5)
+            }
+                .filter { !isWeatherCard(it) }
+                .take(5)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to parse editorial JSON", e)
             null
@@ -89,8 +109,11 @@ class BriefEditorialEngine @Inject constructor(
         if (type != rawType) {
             Log.d(TAG, "Type normalized: '$rawType' → '$type'")
         }
-        Log.d(TAG, "Parsed item: type=$type icon=$icon headline=$headline " +
-            "rawIntent=${rawAction?.intentUri} finalIntent=${action?.intentUri}")
+        Log.d(
+            TAG,
+            "Parsed item: type=$type icon=$icon headline=$headline " +
+                "rawIntent=${rawAction?.intentUri} finalIntent=${action?.intentUri}",
+        )
 
         return when (type) {
             "alert_assessed" -> BriefItem.AlertAssessed(
@@ -210,8 +233,60 @@ class BriefEditorialEngine @Inject constructor(
         return trimmed.substring(start + 1, end).trim()
     }
 
+    /**
+     * Gets the top predicted apps for the current context key — these are
+     * apps the user typically opens at this time/day/location.
+     */
+    private suspend fun buildTypicalAppsSummary(context: AriaContext): String {
+        val contextKey = context.contextKey.toStringKey()
+        val predictions = usageDataRepository.getTopApps(contextKey, limit = 5)
+        if (predictions.isEmpty()) return ""
+        return predictions.joinToString(", ") { it.packageName.substringAfterLast('.').replaceFirstChar { c -> c.uppercase() } }
+    }
+
+    /**
+     * Builds a compact notification summary for the editorial prompt.
+     * Groups by package and shows count + latest title.
+     */
+    private fun buildNotificationSummary(): String {
+        val notifications = AriaNotificationListener.getNotifications()
+        if (notifications.isEmpty()) return ""
+        return notifications
+            .groupBy { it.packageName }
+            .entries
+            .sortedByDescending { it.value.size }
+            .take(5)
+            .joinToString(", ") { (pkg, items) ->
+                val label = pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() }
+                val latest = items.maxByOrNull { it.postedTime }?.title
+                if (latest != null && items.size > 1) {
+                    "$label (${items.size}, latest: $latest)"
+                } else if (latest != null) {
+                    "$label ($latest)"
+                } else {
+                    "$label (${items.size})"
+                }
+            }
+    }
+
     companion object {
         private const val TAG = "ARIA.EditorialEngine"
+
+        private val WEATHER_ICONS = setOf(
+            "cloud", "rainy", "storm", "thunderstorm", "weather", "sunny",
+            "snow", "foggy", "partly_cloudy", "cloudy", "ac_unit", "wb_sunny",
+            "umbrella", "water_drop", "thermostat", "air",
+        )
+
+        /** Safety-net filter: drop weather-themed LiveDataCards since ContextBar handles weather. */
+        private fun isWeatherCard(item: BriefItem): Boolean {
+            if (item !is BriefItem.LiveDataCard) return false
+            if (item.icon.lowercase() in WEATHER_ICONS) {
+                Log.d(TAG, "Filtered weather card: icon=${item.icon} headline=${item.headline}")
+                return true
+            }
+            return false
+        }
 
         /** Map abbreviated/invented type names to valid BriefItem types. */
         private val TYPE_ALIASES = mapOf(
@@ -231,7 +306,6 @@ class BriefEditorialEngine @Inject constructor(
         /** Fallback intent URIs for common LLM-generated card types/icons. */
         private val INTENT_FALLBACKS = mapOf(
             // Icon-based (LLM often uses material icon names)
-            // Weather: try multiple known packages via WEATHER_PACKAGES in AriaHomeState
             "weather" to "package:weather",
             "storm" to "package:weather",
             "cloud" to "package:weather",

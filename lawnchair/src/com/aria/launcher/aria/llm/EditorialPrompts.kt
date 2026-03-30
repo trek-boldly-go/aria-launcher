@@ -9,23 +9,45 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /**
- * Builds the editorial system prompt for ARIA's LLM Brief curation.
- * Called once per context change, not per unlock.
+ * Builds editorial prompt variables and resolves templates for ARIA's LLM Brief curation.
+ * The template itself is stored in AriaPreferences and editable by the user.
  */
 object EditorialPrompts {
 
     private val timeFormat = SimpleDateFormat("h:mm a", Locale.US)
 
-    fun buildEditorialSystemPrompt(
+    /**
+     * Resolves a template string by replacing ${variable} placeholders with values.
+     * Unknown placeholders are left as-is so user custom text is preserved.
+     */
+    fun resolveTemplate(
+        template: String,
+        variables: Map<String, String>,
+    ): String {
+        var result = template
+        for ((key, value) in variables) {
+            result = result.replace("\${$key}", value)
+        }
+        return result
+    }
+
+    /**
+     * Builds the variable map from live context signals.
+     * Each key corresponds to a ${variable} in the editorial prompt template.
+     */
+    fun buildVariables(
         context: AriaContext,
         weather: WeatherProvider.WeatherSnapshot? = null,
-    ): String {
+        capabilities: String = "",
+        notifications: String = "",
+        battery: String = "",
+        typicalApps: String = "",
+    ): Map<String, String> {
         val key = context.contextKey
         val now = context.timestampMs
         val formattedTime = timeFormat.format(Date(now))
         val activityStr = context.detectedActivity?.let { activityLabel(it) } ?: "unknown"
 
-        // Calendar: include time-until and start time, not just titles
         val eventsStr = if (context.upcomingEvents.isEmpty()) {
             "none"
         } else {
@@ -42,8 +64,6 @@ object EditorialPrompts {
             }
         }
 
-        // Apps: use labels when available, fall back to package name
-        // Also collect package names for intent URI guidance
         val recentAppsStr = if (context.recentAppLabels.isEmpty()) {
             "none"
         } else {
@@ -56,14 +76,12 @@ object EditorialPrompts {
             context.recentAppPackages.take(5).joinToString(", ") { "package:$it" }
         }
 
-        // Weather
         val weatherStr = weather?.let {
             "${it.condition}, ${it.tempF}\u00B0F" +
                 (if (it.feelsLikeF != it.tempF) " (feels like ${it.feelsLikeF}\u00B0)" else "") +
                 if (it.windSpeedMph >= 15) ", wind ${it.windSpeedMph} mph" else ""
         } ?: "unavailable"
 
-        // Device state
         val chargingStr = if (context.isCharging) "yes" else "no"
         val vehicleStr = when {
             context.isAndroidAutoConnected ->
@@ -74,77 +92,37 @@ object EditorialPrompts {
             else -> "no"
         }
 
-        // Visit context
         val visitStr = context.visitContext ?: "unknown"
 
-        // Rules
         val rulesStr = if (context.firedRules.isEmpty()) {
             "none"
         } else {
             context.firedRules.joinToString("; ") { "rule#${it.ruleId}(${it.action::class.simpleName})" }
         }
 
-        return """
-            You are ARIA's (an android launcher) editorial engine. Your job is to decide what appears on the
-            user's home screen right now, based on their current context and signals
-            from ARIA's prediction engine.
-
-            Current context:
-            - Time: $formattedTime (${key.timeBucket})
-            - Day: ${key.dayType}
-            - Location: ${key.location}
-            - Detected activity: $activityStr
-            - Charging: $chargingStr
-            - In vehicle: $vehicleStr
-            - Weather: $weatherStr
-            - Visit context: $visitStr
-            - Upcoming calendar events: $eventsStr
-            - Recently used apps: $recentAppsStr
-            - Current venue: ${context.currentVenueCategory ?: "unknown"}
-            - Active user rules that fired: $rulesStr
-
-            Respond ONLY with valid JSON. No markdown fences, no explanation, no preamble.
-
-            {
-              "brief": [
-                {
-                  "type": "<valid type>",
-                  "icon": "<material symbol name>",
-                  "headline": "<max 6 words — ARIA's judgment, not raw data>",
-                  "subtext": "<max 12 words, or null>",
-                  "severity": "<critical, warning, or info — only for alert_assessed>",
-                  "action": { "label": "<max 3 words>", "intentUri": "<package:com.example.app or null>" }
-                }
-              ]
-            }
-
-            Valid types: alert_assessed, reminder_nudge, calendar_event, media_resume,
-            proactive_suggestion, venue_card, live_data_card
-
-            Example (weather at night, charging):
-            {"brief":[{"type":"live_data_card","icon":"cloud","headline":"Warm and overcast tonight","subtext":"72°F, clearing by morning","action":{"label":"Weather","intentUri":"package:weather"}}]}
-
-            Example (morning with calendar event in 20min):
-            {"brief":[{"type":"calendar_event","icon":"calendar_today","headline":"Team standup in 20min","subtext":"9:30 AM, Conference Room B","action":{"label":"Calendar","intentUri":"package:com.google.android.calendar"}},{"type":"proactive_suggestion","icon":"directions_car","headline":"Leave now to arrive on time","subtext":"22 min drive, moderate traffic","action":{"label":"Navigate","intentUri":"package:com.google.android.apps.maps"}}]}
-
-            Intent URIs: Use "package:<packagename>" to open an app. Examples:
-            - "package:weather" — open Weather
-            - "package:com.google.android.calendar" — open Calendar
-            - "package:com.google.android.apps.maps" — open Maps
-            ${if (recentPackagesStr.isNotEmpty()) "- User's recent apps: $recentPackagesStr" else ""}
-            If you don't know the right package, use null — do NOT guess.
-
-            Rules:
-            - Maximum 5 items. Minimum 0 — empty is better than noisy.
-            - Headlines must be ARIA's judgment, not forwarded data.
-              BAD: "Flood Advisory issued March 15 at 9:02PM CDT until March 16"
-              GOOD: "Flood advisory — your area isn't affected"
-            - Never show more than one weather item.
-            - Calendar events within 30 minutes always appear.
-            - If a user rule fired, its corresponding action takes priority.
-            - Action labels must be short (1-3 words) like "Weather", "Open Map", "Dismiss".
-            - When in doubt, show less.
-        """.trimIndent()
+        return mapOf(
+            "time" to formattedTime,
+            "time_bucket" to key.timeBucket.name,
+            "day_type" to key.dayType.name,
+            "location" to key.location.name,
+            "activity" to activityStr,
+            "charging" to chargingStr,
+            "vehicle" to vehicleStr,
+            "weather" to weatherStr,
+            "visit_context" to visitStr,
+            "calendar" to eventsStr,
+            "recent_apps" to recentAppsStr,
+            "recent_packages" to recentPackagesStr,
+            "venue" to (context.currentVenueCategory ?: "unknown"),
+            "rules" to rulesStr,
+            "capabilities" to capabilities,
+            "notifications" to notifications.ifEmpty { "none" },
+            "battery" to battery.ifEmpty {
+                val level = context.batteryLevel
+                if (level >= 0) "$level%${if (context.isCharging) " (charging)" else ""}" else "unknown"
+            },
+            "typical_apps" to typicalApps.ifEmpty { "unknown" },
+        )
     }
 
     private fun formatDuration(minutes: Long): String = when {
