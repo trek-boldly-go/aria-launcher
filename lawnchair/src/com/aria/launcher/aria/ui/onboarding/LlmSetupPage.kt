@@ -29,6 +29,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -51,6 +52,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -85,7 +87,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class LlmSetupScreen {
+internal enum class LlmSetupScreen {
     CHOOSER,
     GEMINI_SETUP,
     CLAUDE_SETUP,
@@ -521,7 +523,7 @@ private fun OnDeviceModelFooter(
 // ── Sub-page: Back button helper ──
 
 @Composable
-private fun SubPageBackButton(onBack: () -> Unit) {
+internal fun SubPageBackButton(onBack: () -> Unit) {
     IconButton(
         onClick = onBack,
         modifier = Modifier.size(48.dp),
@@ -536,7 +538,7 @@ private fun SubPageBackButton(onBack: () -> Unit) {
 // ── Inline test result display ──
 
 @Composable
-private fun TestResultDisplay(
+internal fun TestResultDisplay(
     testResult: String?,
     isTesting: Boolean,
 ) {
@@ -580,7 +582,7 @@ private fun TestResultDisplay(
 }
 
 /** Run test and return a human-readable result string. */
-private suspend fun runProviderTest(llmProviderManager: LlmProviderManager): String {
+internal suspend fun runProviderTest(llmProviderManager: LlmProviderManager): String {
     val result = withContext(Dispatchers.IO) { llmProviderManager.testConnection() }
     return when (result) {
         is LlmResult.Text -> "Connected \u2014 responses take about 2 seconds"
@@ -593,9 +595,10 @@ private suspend fun runProviderTest(llmProviderManager: LlmProviderManager): Str
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun GeminiSetupSubPage(
+internal fun GeminiSetupSubPage(
     llmProviderManager: LlmProviderManager,
     onBack: () -> Unit,
+    onSuccess: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -607,6 +610,14 @@ private fun GeminiSetupSubPage(
     var modelDropdownExpanded by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<String?>(null) }
     var isTesting by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val saved = withContext(Dispatchers.IO) { llmProviderManager.getSavedConfig() }
+        if (saved.type == ProviderType.GEMINI) {
+            if (saved.apiKey.isNotBlank()) apiKey = saved.apiKey
+            if (saved.modelId.isNotBlank()) selectedModelId = saved.modelId
+        }
+    }
 
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
         SubPageBackButton(onBack = onBack)
@@ -719,6 +730,7 @@ private fun GeminiSetupSubPage(
                         }
                         testResult = runProviderTest(llmProviderManager)
                         isTesting = false
+                        if (testResult?.startsWith("Connected") == true) onSuccess()
                     }
                 },
                 shapes = ButtonDefaults.shapes(),
@@ -743,10 +755,11 @@ private fun GeminiSetupSubPage(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Suppress("ktlint:compose:parameter-naming")
 @Composable
-private fun ClaudeSetupSubPage(
+internal fun ClaudeSetupSubPage(
     llmProviderManager: LlmProviderManager,
     onQrScanRequested: () -> Unit,
     onBack: () -> Unit,
+    onSuccess: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -756,6 +769,14 @@ private fun ClaudeSetupSubPage(
     var apiKey by remember { mutableStateOf("") }
     var testResult by remember { mutableStateOf<String?>(null) }
     var isTesting by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val saved = withContext(Dispatchers.IO) { llmProviderManager.getSavedConfig() }
+        if (saved.type == ProviderType.CLAUDE_API_KEY || saved.type == ProviderType.CLAUDE_OAUTH) {
+            if (saved.apiKey.isNotBlank()) apiKey = saved.apiKey
+            if (saved.type == ProviderType.CLAUDE_OAUTH) selectedTab = 1
+        }
+    }
 
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
         SubPageBackButton(onBack = onBack)
@@ -830,6 +851,7 @@ private fun ClaudeSetupSubPage(
                             }
                             testResult = runProviderTest(llmProviderManager)
                             isTesting = false
+                            if (testResult?.startsWith("Connected") == true) onSuccess()
                         }
                     },
                     shapes = ButtonDefaults.shapes(),
@@ -874,7 +896,7 @@ private fun ClaudeSetupSubPage(
 
 // ── Ollama Sub-Page ──
 
-private enum class OllamaAuthType(val label: String) {
+internal enum class OllamaAuthType(val label: String) {
     NONE("None"),
     BASIC("Basic Auth"),
     BEARER("Bearer"),
@@ -883,9 +905,10 @@ private enum class OllamaAuthType(val label: String) {
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun OllamaSetupSubPage(
+internal fun OllamaSetupSubPage(
     llmProviderManager: LlmProviderManager,
     onBack: () -> Unit,
+    onSuccess: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -906,6 +929,33 @@ private fun OllamaSetupSubPage(
     var selectedModelName by remember { mutableStateOf("") }
     var modelFetchError by remember { mutableStateOf<String?>(null) }
     var isFetchingModels by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val saved = withContext(Dispatchers.IO) { llmProviderManager.getSavedConfig() }
+        if (saved.type == ProviderType.OLLAMA) {
+            if (saved.serverUrl.isNotBlank()) serverUrl = saved.serverUrl
+            if (saved.modelId.isNotBlank()) selectedModelName = saved.modelId
+            when (val auth = saved.authConfig) {
+                is AuthConfig.None -> authType = OllamaAuthType.NONE
+
+                is AuthConfig.Basic -> {
+                    authType = OllamaAuthType.BASIC
+                    basicUser = auth.username
+                    basicPass = auth.password
+                }
+
+                is AuthConfig.BearerToken -> {
+                    authType = OllamaAuthType.BEARER
+                    bearerToken = auth.token
+                }
+
+                is AuthConfig.CustomHeaders -> {
+                    authType = OllamaAuthType.CUSTOM
+                    customHeaders = auth.headers.toList().ifEmpty { listOf("" to "") }
+                }
+            }
+        }
+    }
 
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
         SubPageBackButton(onBack = onBack)
@@ -934,6 +984,8 @@ private fun OllamaSetupSubPage(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
+
+        ServerUrlWarnings(url = serverUrl)
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -1186,6 +1238,7 @@ private fun OllamaSetupSubPage(
                         }
                         testResult = runProviderTest(llmProviderManager)
                         isTesting = false
+                        if (testResult?.startsWith("Connected") == true) onSuccess()
                     }
                 },
                 shapes = ButtonDefaults.shapes(),
@@ -1206,7 +1259,7 @@ private fun OllamaSetupSubPage(
 }
 
 /** Build an [AuthConfig] from the Ollama setup UI state. */
-private fun buildAuthConfig(
+internal fun buildAuthConfig(
     authType: OllamaAuthType,
     basicUser: String,
     basicPass: String,
@@ -1231,9 +1284,10 @@ private fun buildAuthConfig(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun OpenAiSetupSubPage(
+internal fun OpenAiSetupSubPage(
     llmProviderManager: LlmProviderManager,
     onBack: () -> Unit,
+    onSuccess: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1243,6 +1297,15 @@ private fun OpenAiSetupSubPage(
     var modelId by remember { mutableStateOf("") }
     var testResult by remember { mutableStateOf<String?>(null) }
     var isTesting by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val saved = withContext(Dispatchers.IO) { llmProviderManager.getSavedConfig() }
+        if (saved.type == ProviderType.OPENAI_COMPATIBLE || saved.type == ProviderType.OPEN_ROUTER) {
+            if (saved.serverUrl.isNotBlank()) serverUrl = saved.serverUrl
+            if (saved.apiKey.isNotBlank()) apiKey = saved.apiKey
+            if (saved.modelId.isNotBlank()) modelId = saved.modelId
+        }
+    }
 
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
         SubPageBackButton(onBack = onBack)
@@ -1270,6 +1333,9 @@ private fun OpenAiSetupSubPage(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
+
+        ServerUrlWarnings(url = serverUrl)
+
         Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedTextField(
@@ -1316,6 +1382,7 @@ private fun OpenAiSetupSubPage(
                         }
                         testResult = runProviderTest(llmProviderManager)
                         isTesting = false
+                        if (testResult?.startsWith("Connected") == true) onSuccess()
                     }
                 },
                 shapes = ButtonDefaults.shapes(),
@@ -1332,5 +1399,76 @@ private fun OpenAiSetupSubPage(
         TestResultDisplay(testResult = testResult, isTesting = false)
 
         Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+private val privateIpPattern = Regex(
+    """https?://(10\.\d{1,3}\.\d{1,3}\.\d{1,3}""" +
+        """|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}""" +
+        """|192\.168\.\d{1,3}\.\d{1,3}""" +
+        """|127\.\d{1,3}\.\d{1,3}\.\d{1,3})""",
+)
+
+@Composable
+private fun ServerUrlWarnings(url: String) {
+    val trimmed = url.trim()
+    val isHttp = trimmed.startsWith("http://", ignoreCase = true)
+    val isLocalIp = privateIpPattern.containsMatchIn(trimmed)
+
+    Column {
+        if (isHttp) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(modifier = Modifier.padding(12.dp)) {
+                    Icon(
+                        imageVector = Icons.Rounded.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Unencrypted connection \u2014 your data will be sent in " +
+                            "plain text. Only use HTTP on trusted networks for testing. " +
+                            "For long-term use, set up HTTPS via a reverse proxy " +
+                            "(Caddy, Nginx, etc.).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                }
+            }
+        }
+
+        if (isLocalIp) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(modifier = Modifier.padding(12.dp)) {
+                    Icon(
+                        imageVector = Icons.Rounded.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "This is a local network address. It will only work while " +
+                            "connected to the same network as your server. When you leave " +
+                            "your home/office network, ARIA won\u2019t be able to reach " +
+                            "it unless you use a VPN connected back to your server\u2019s " +
+                            "network.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                }
+            }
+        }
     }
 }

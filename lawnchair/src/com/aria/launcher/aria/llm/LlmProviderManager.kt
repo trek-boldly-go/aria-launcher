@@ -50,6 +50,14 @@ data class ProviderStatus(
     val serverUrl: String?,
 )
 
+data class SavedProviderConfig(
+    val type: ProviderType?,
+    val apiKey: String,
+    val serverUrl: String,
+    val modelId: String,
+    val authConfig: AuthConfig,
+)
+
 @Singleton
 class LlmProviderManager @Inject constructor(
     private val context: Context,
@@ -121,6 +129,17 @@ class LlmProviderManager @Inject constructor(
 
     fun clearCache() {
         cachedProvider = null
+    }
+
+    suspend fun getSavedConfig(): SavedProviderConfig {
+        val prefs = context.llmPrefsStore.data.first()
+        return SavedProviderConfig(
+            type = prefs[KEY_PROVIDER_TYPE]?.let { runCatching { ProviderType.valueOf(it) }.getOrNull() },
+            apiKey = prefs[KEY_API_KEY] ?: "",
+            serverUrl = prefs[KEY_SERVER_URL] ?: "",
+            modelId = prefs[KEY_MODEL_ID] ?: "",
+            authConfig = AuthConfig.decode(prefs[KEY_AUTH_CONFIG]),
+        )
     }
 
     /** The previously active remote provider, saved when switching to LITERT. */

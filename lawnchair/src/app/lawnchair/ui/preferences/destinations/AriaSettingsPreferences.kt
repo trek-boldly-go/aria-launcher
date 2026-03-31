@@ -12,9 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +38,7 @@ import app.lawnchair.ui.preferences.LocalNavController
 import app.lawnchair.ui.preferences.components.controls.ClickablePreference
 import app.lawnchair.ui.preferences.components.layout.PreferenceGroup
 import app.lawnchair.ui.preferences.components.layout.PreferenceLayout
+import app.lawnchair.ui.preferences.navigation.AriaLlmSetup
 import app.lawnchair.ui.preferences.navigation.AriaRules
 import com.aria.launcher.aria.data.AriaNotificationListener
 import com.aria.launcher.aria.data.AriaPreferences
@@ -104,7 +103,6 @@ fun AriaSettingsPreferences(
     var workWifiInput by remember(workWifi) { mutableStateOf(workWifi ?: "") }
 
     // LLM config state
-    var apiKeyInput by remember { mutableStateOf("") }
     var llmTestResult by remember { mutableStateOf<String?>(null) }
     var llmTestRunning by remember { mutableStateOf(false) }
 
@@ -195,73 +193,20 @@ fun AriaSettingsPreferences(
                             }
                         }
                     } ?: "Not configured",
-                    onClick = {},
-                )
-            }
-            Item {
-                OutlinedTextField(
-                    value = apiKeyInput,
-                    onValueChange = { apiKeyInput = it },
-                    label = { Text("API key or OAuth token") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    onClick = { navController.navigate(AriaLlmSetup) },
                 )
             }
             Item {
                 ClickablePreference(
-                    label = "Configure Claude",
-                    subtitle = "Set API key and test connection",
-                    onClick = {
-                        if (apiKeyInput.isBlank()) {
-                            Toast.makeText(context, "Enter an API key first", Toast.LENGTH_SHORT).show()
-                            return@ClickablePreference
-                        }
-                        scope.launch {
-                            val manager = entryPoint.llmProviderManager()
-                            val type = if (apiKeyInput.startsWith("sk-ant-oat01-")) {
-                                ProviderType.CLAUDE_OAUTH
-                            } else {
-                                ProviderType.CLAUDE_API_KEY
-                            }
-                            withContext(Dispatchers.IO) {
-                                manager.configureProvider(
-                                    type = type,
-                                    apiKey = apiKeyInput,
-                                )
-                            }
-                            Toast.makeText(context, "Claude configured ($type)", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                )
-            }
-            Item {
-                ClickablePreference(
-                    label = "Configure Gemini",
-                    subtitle = "Set Gemini API key",
-                    onClick = {
-                        if (apiKeyInput.isBlank()) {
-                            Toast.makeText(context, "Enter an API key first", Toast.LENGTH_SHORT).show()
-                            return@ClickablePreference
-                        }
-                        scope.launch {
-                            val manager = entryPoint.llmProviderManager()
-                            withContext(Dispatchers.IO) {
-                                manager.configureProvider(
-                                    type = ProviderType.GEMINI,
-                                    apiKey = apiKeyInput,
-                                )
-                            }
-                            Toast.makeText(context, "Gemini configured", Toast.LENGTH_SHORT).show()
-                        }
-                    },
+                    label = "Change AI provider",
+                    subtitle = "Claude, Gemini, Ollama, OpenAI-compatible",
+                    onClick = { navController.navigate(AriaLlmSetup) },
                 )
             }
             Item {
                 ClickablePreference(
                     label = "Test LLM connection",
-                    subtitle = llmTestResult ?: if (llmTestRunning) "Testing…" else "Tap to test",
+                    subtitle = llmTestResult ?: if (llmTestRunning) "Testing\u2026" else "Tap to test",
                     onClick = {
                         if (llmTestRunning) return@ClickablePreference
                         llmTestRunning = true
