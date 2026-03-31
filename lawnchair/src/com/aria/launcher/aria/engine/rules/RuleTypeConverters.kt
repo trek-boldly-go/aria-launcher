@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
+// Copyright (c) 2026 Donovon Simpson. See LICENSE-ARIA.md for licensing terms.
 package com.aria.launcher.aria.engine.rules
 
 import androidx.room.TypeConverter

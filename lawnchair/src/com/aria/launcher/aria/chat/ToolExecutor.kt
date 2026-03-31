@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
+// Copyright (c) 2026 Donovon Simpson. See LICENSE-ARIA.md for licensing terms.
 package com.aria.launcher.aria.chat
 
 import android.content.ActivityNotFoundException
@@ -11,10 +11,17 @@ import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.provider.MediaStore
 import android.util.Log
+import com.aria.launcher.aria.engine.skills.AgentSkillManager
 import com.aria.launcher.aria.llm.ToolCall
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 
 data class ToolResult(
     val toolCallId: String,
@@ -23,11 +30,17 @@ data class ToolResult(
     val success: Boolean = true,
 )
 
-class ToolExecutor(private val context: Context) {
+class ToolExecutor(
+    private val context: Context,
+    private val httpClient: OkHttpClient? = null,
+    private val agentSkillManager: AgentSkillManager? = null,
+) {
 
     fun execute(toolCall: ToolCall): ToolResult {
         return try {
             when (toolCall.name) {
+                "fetch_url" -> executeFetchUrl(toolCall)
+                "activate_skill" -> executeActivateSkill(toolCall)
                 "open_app" -> executeOpenApp(toolCall)
                 "search_web" -> executeSearchWeb(toolCall)
                 "set_reminder" -> executeSetReminder(toolCall)
@@ -46,6 +59,115 @@ class ToolExecutor(private val context: Context) {
             Log.e(TAG, "Tool execution failed: ${toolCall.name}", e)
             ToolResult(toolCall.id, toolCall.name, "Error: ${e.message}", false)
         }
+    }
+
+    private fun executeFetchUrl(toolCall: ToolCall): ToolResult {
+        val url = toolCall.arguments["url"]?.jsonPrimitive?.contentOrNull
+            ?: return ToolResult(toolCall.id, toolCall.name, "Missing url", false)
+        val method = toolCall.arguments["method"]?.jsonPrimitive?.contentOrNull?.uppercase() ?: "GET"
+        val bodyContent = toolCall.arguments["body"]?.jsonPrimitive?.contentOrNull
+
+        val client = httpClient
+            ?: return ToolResult(toolCall.id, toolCall.name, "HTTP client not available", false)
+
+        // Security: reject private network URLs
+        val rejectionReason = checkUrlSafety(url)
+        if (rejectionReason != null) {
+            return ToolResult(toolCall.id, toolCall.name, rejectionReason, false)
+        }
+
+        val requestBuilder = Request.Builder().url(url)
+
+        // Apply optional headers
+        val headersObj = toolCall.arguments["headers"]?.jsonObject
+        headersObj?.forEach { (key, value) ->
+            val headerVal = value.jsonPrimitive.contentOrNull ?: return@forEach
+            requestBuilder.header(key, headerVal)
+        }
+
+        // Set method and body
+        when (method) {
+            "POST" -> {
+                val body = (bodyContent ?: "")
+                    .toRequestBody("application/json".toMediaType())
+                requestBuilder.post(body)
+            }
+
+            "GET" -> requestBuilder.get()
+
+            else -> return ToolResult(
+                toolCall.id,
+                toolCall.name,
+                "Unsupported method: $method (use GET or POST)",
+                false,
+            )
+        }
+
+        // Add a User-Agent so APIs don't reject the request
+        if (requestBuilder.build().header("User-Agent") == null) {
+            requestBuilder.header("User-Agent", "ARIA-Launcher/1.0")
+        }
+
+        return try {
+            val response = client.newCall(requestBuilder.build()).execute()
+            val responseBody = response.body?.string() ?: ""
+            val truncated = if (responseBody.length > MAX_FETCH_RESPONSE_CHARS) {
+                responseBody.take(MAX_FETCH_RESPONSE_CHARS) + "\n... [truncated, ${responseBody.length} chars total]"
+            } else {
+                responseBody
+            }
+            val resultText = "HTTP ${response.code}\n$truncated"
+            ToolResult(toolCall.id, toolCall.name, resultText, response.isSuccessful)
+        } catch (e: Exception) {
+            Log.w(TAG, "fetch_url failed: $url", e)
+            val errorMsg = e.message ?: "${e.javaClass.simpleName} (no details)"
+            ToolResult(toolCall.id, toolCall.name, "Fetch failed: $errorMsg", false)
+        }
+    }
+
+    private fun checkUrlSafety(url: String): String? {
+        val lower = url.lowercase()
+        if (lower.startsWith("file://")) return "file:// URLs are not allowed"
+        if (lower.startsWith("javascript:")) return "javascript: URLs are not allowed"
+
+        // Extract host from URL
+        val host = try {
+            Uri.parse(url).host?.lowercase()
+        } catch (_: Exception) {
+            return "Invalid URL"
+        } ?: return "Invalid URL: no host"
+
+        // Reject private network addresses
+        if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
+            return "localhost URLs are not allowed"
+        }
+        if (host.startsWith("10.") || host.startsWith("192.168.") || host.startsWith("172.")) {
+            return "Private network URLs are not allowed"
+        }
+        if (host.endsWith(".local")) {
+            return "Local network URLs are not allowed"
+        }
+        return null
+    }
+
+    private fun executeActivateSkill(toolCall: ToolCall): ToolResult {
+        val name = toolCall.arguments["name"]?.jsonPrimitive?.contentOrNull
+            ?: return ToolResult(toolCall.id, toolCall.name, "Missing skill name", false)
+
+        val manager = agentSkillManager
+            ?: return ToolResult(toolCall.id, toolCall.name, "Skill system not available", false)
+
+        val content = runBlocking { manager.getSkillContent(name) }
+            ?: return ToolResult(toolCall.id, toolCall.name, "Skill '$name' not found", false)
+
+        val config = manager.getConfig(name)
+        val configSection = if (config.isNotEmpty()) {
+            "\n\nUser configuration:\n" + config.entries.joinToString("\n") { "- ${it.key}: ${it.value}" }
+        } else {
+            ""
+        }
+
+        return ToolResult(toolCall.id, toolCall.name, content + configSection)
     }
 
     private fun executeOpenApp(toolCall: ToolCall): ToolResult {
@@ -254,5 +376,6 @@ class ToolExecutor(private val context: Context) {
 
     companion object {
         private const val TAG = "ARIA.ToolExecutor"
+        private const val MAX_FETCH_RESPONSE_CHARS = 4000
     }
 }

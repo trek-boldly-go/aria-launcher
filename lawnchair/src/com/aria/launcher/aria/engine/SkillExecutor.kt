@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
+// Copyright (c) 2026 Donovon Simpson. See LICENSE-ARIA.md for licensing terms.
 package com.aria.launcher.aria.engine
 
 import com.aria.launcher.aria.data.AppSkill
@@ -11,6 +11,7 @@ interface SkillExecutor {
 
 class SkillExecutorRegistry(
     private val executors: List<SkillExecutor>,
+    private val fallbackExecutor: SkillExecutor? = null,
 ) {
     private val executorMap: Map<String, SkillExecutor> by lazy {
         executors.flatMap { executor ->
@@ -19,6 +20,7 @@ class SkillExecutorRegistry(
     }
 
     fun getExecutor(skillId: String): SkillExecutor? = executorMap[skillId]
+        ?: fallbackExecutor?.takeIf { skillId in it.supportedSkillIds }
 
-    fun allSkillIds(): Set<String> = executorMap.keys
+    fun allSkillIds(): Set<String> = executorMap.keys + (fallbackExecutor?.supportedSkillIds ?: emptySet())
 }

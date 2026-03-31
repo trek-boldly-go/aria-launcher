@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
+// Copyright (c) 2026 Donovon Simpson. See LICENSE-ARIA.md for licensing terms.
 package com.aria.launcher.aria.chat
 
 import android.content.Context
@@ -10,6 +10,7 @@ import com.aria.launcher.aria.data.UserMemoryDao
 import com.aria.launcher.aria.engine.AppActivityCatalog
 import com.aria.launcher.aria.engine.ContextKey
 import com.aria.launcher.aria.engine.DeviceCapabilityCatalog
+import com.aria.launcher.aria.engine.skills.AgentSkillManager
 import com.aria.launcher.aria.llm.AriaPrompts
 import com.aria.launcher.aria.llm.ChatMessage
 import com.aria.launcher.aria.llm.LlmProviderManager
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 
 data class UiMessage(
     val role: Role,
@@ -39,6 +41,8 @@ class ChatState(
     private val ariaChatHandler: AriaChatHandler,
     private val capabilityCatalog: DeviceCapabilityCatalog,
     private val appActivityCatalog: AppActivityCatalog,
+    private val httpClient: OkHttpClient,
+    private val agentSkillManager: AgentSkillManager,
 ) {
     private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
     val messages: StateFlow<List<UiMessage>> = _messages.asStateFlow()
@@ -52,7 +56,7 @@ class ChatState(
     /** Pending confirmation action waiting for user to say "Yes" or "No". */
     private var pendingConfirmation: ConfirmationAction? = null
 
-    private val toolExecutor = ToolExecutor(context)
+    private val toolExecutor = ToolExecutor(context, httpClient, agentSkillManager)
 
     /**
      * Called when the chat sheet is opened. Checks if the conversation has been idle
@@ -155,15 +159,28 @@ class ChatState(
                 appActivityCatalog.getPromptSummary(topPackages, maxPerApp = 3)
             }
 
+            val skillCatalog = withContext(Dispatchers.IO) {
+                agentSkillManager.getSkillCatalog()
+            }
+            val skillNames = skillCatalog.map { it.name }
+
+            val skillCatalogSummary = if (skillCatalog.isNotEmpty()) {
+                "Available skills (call activate_skill to load instructions before using):\n" +
+                    skillCatalog.joinToString("\n") { "- ${it.name}: ${it.description}" }
+            } else {
+                ""
+            }
+
             val systemPrompt = AriaPrompts.buildSystemPrompt(
                 signals = contextSignalManager,
                 contextKey = contextKey,
                 userMemories = memories.map { it.fact },
                 capabilitySummary = capabilitySummary,
                 activitySummary = activitySummary,
+                skillCatalog = skillCatalogSummary,
             )
 
-            val tools = AriaPrompts.buildTools(capabilities)
+            val tools = AriaPrompts.buildTools(capabilities, skillNames)
 
             val chatMessages = _messages.value.map { msg ->
                 ChatMessage(role = msg.role, content = msg.content)
@@ -195,18 +212,24 @@ class ChatState(
                             _messages.value += textMsg
                         }
 
-                        // Execute each tool call
-                        val toolResults = result.toolCalls.map { toolCall ->
-                            toolExecutor.execute(toolCall)
+                        // Execute each tool call on IO dispatcher (some do sync HTTP)
+                        val toolResults = withContext(Dispatchers.IO) {
+                            result.toolCalls.map { toolCall ->
+                                toolExecutor.execute(toolCall)
+                            }
                         }
 
-                        // Show tool results
-                        val toolMessage = UiMessage(
-                            Role.ASSISTANT,
-                            toolResults.joinToString("\n") { "${it.toolName}: ${it.result}" },
-                            toolResults = toolResults,
-                        )
-                        _messages.value += toolMessage
+                        // Tool results are intermediate LLM context — don't show to user.
+                        // Only show errors for tools that launch visible actions (not data-fetching).
+                        val actionFailures = toolResults.filter {
+                            !it.success && it.toolName !in INTERNAL_TOOLS
+                        }
+                        if (actionFailures.isNotEmpty()) {
+                            val errorMsg = actionFailures.joinToString("\n") {
+                                "${it.toolName}: ${it.result}"
+                            }
+                            _messages.value += UiMessage(Role.ASSISTANT, errorMsg)
+                        }
 
                         // Feed results back to the AI for continuation
                         val toolResultText = toolResults.joinToString("\n") {
@@ -389,5 +412,8 @@ class ChatState(
     companion object {
         private const val TAG = "ARIA.Chat"
         private const val MAX_TOOL_ROUNDS = 5
+
+        /** Tools whose results are purely internal LLM context — never shown to the user. */
+        private val INTERNAL_TOOLS = setOf("fetch_url", "activate_skill")
     }
 }

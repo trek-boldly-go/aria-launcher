@@ -1,5 +1,7 @@
 # ARIA Manual Testing Guide
 
+> **Audience:** Developers and contributors. For general setup instructions, see [Getting Started](getting-started.md).
+
 Everything below assumes ARIA is already installed on your phone. Your ADB path is `~/Library/Android/sdk/platform-tools/adb` — it's not on your system PATH, so every `adb` command below uses the full path. Your phone must be plugged in via USB (or connected via wireless debugging).
 
 > **What is ADB?** It's a command-line tool that lets your Mac talk to your Android phone. It comes with Android Studio. You run commands in Terminal on your Mac, and they execute on your phone.

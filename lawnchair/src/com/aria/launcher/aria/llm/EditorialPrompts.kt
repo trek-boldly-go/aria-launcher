@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
+// Copyright (c) 2026 Donovon Simpson. See LICENSE-ARIA.md for licensing terms.
 package com.aria.launcher.aria.llm
 
 import com.aria.launcher.aria.data.WeatherProvider
@@ -43,6 +43,7 @@ object EditorialPrompts {
         battery: String = "",
         typicalApps: String = "",
         appActivities: String = "",
+        skills: String = "",
     ): Map<String, String> {
         val key = context.contextKey
         val now = context.timestampMs
@@ -124,6 +125,7 @@ object EditorialPrompts {
             },
             "typical_apps" to typicalApps.ifEmpty { "unknown" },
             "app_activities" to appActivities.ifEmpty { "none discovered" },
+            "skills" to skills.ifEmpty { "none installed" },
         )
     }
 

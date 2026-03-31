@@ -1,5 +1,5 @@
 name: Bug report
-description: Create a report to help us address issues you are facing with the app.
+description: Create a report to help us address issues you are facing with ARIA.
 title: "[BUG] "
 labels: [bug, 'status: needs triage']
 type: Bug
@@ -7,14 +7,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        > [!IMPORTANT]
-        > Lawnchair's issue tracker is maintained on a best-effort basis — due to limited resources, we do not guarantee that all issues will be triaged or checked by the developers.
-        > If you wish to help triage Lawnchair's issues, visit [#4232](https://github.com/LawnchairLauncher/lawnchair/issues/4232) for more information.
-        
-        Thanks for taking the time to file this issue! Here are a few things to do before submitting:
-        1. Use the [**latest nightly version**](https://github.com/LawnchairLauncher/lawnchair#development-builds) when reporting bugs.
-        2. [**Read the FAQ**](https://lawnchair.app/faq/#common-issues) for common issues; if it is, please don't create an issue about it.
-        3. Search **both [open and closed issues](https://github.com/LawnchairLauncher/lawnchair/issues?q=is%3Aissue+sort%3Aupdated-desc+)** for your bug.
+        Thanks for taking the time to file this issue! Before submitting:
+        1. Use the [**latest build**](https://github.com/trek-boldly-go/aria-launcher/releases) when reporting bugs.
+        2. Search **both [open and closed issues](https://github.com/trek-boldly-go/aria-launcher/issues?q=is%3Aissue+sort%3Aupdated-desc+)** to check if your bug has already been reported.
 
   - type: textarea
     id: bug-description
@@ -28,10 +23,10 @@ body:
     id: steps-to-reproduce
     attributes:
       label: Steps to reproduce
-      description: Steps to reproduce the bug. **Be specific** on what steps you need to do to encounter this bug.
+      description: Steps to reproduce the bug. Be specific about what you did to encounter it.
       placeholder: |
         1. Go to '...'
-        2. Click on '....'
+        2. Click on '...'
         3. Scroll down to '...'
         4. See error
     validations:
@@ -57,25 +52,41 @@ body:
     id: device-info
     attributes:
       label: Device information
-      description: Provide details about your device, OS, app version, etc.
+      description: Provide details about your device and OS.
       placeholder: |
         - Device: Google Pixel 9
-        - OS: stock Android 12.0
+        - OS: Android 16 (API 36)
     validations:
       required: true
 
-  - type: input
-    id: app-version
+  - type: dropdown
+    id: llm-provider
     attributes:
-      label: App version
-      description: |
-        Open Lawnchair settings > About to view the app version.
-        
-        On nightly builds, **long-press** the version name and paste the GitHub link here.
-      placeholder: |
-        15 Beta 1
+      label: LLM provider
+      description: Which LLM provider are you using? Select "None" if the bug is unrelated to AI features.
+      options:
+        - "None / not applicable"
+        - "Gemini (Google AI Studio)"
+        - "Claude (API key)"
+        - "Claude (OAuth)"
+        - "Ollama"
+        - "OpenRouter"
+        - "OpenAI-compatible"
+        - "On-device (LiteRT)"
     validations:
       required: true
+
+  - type: checkboxes
+    id: permissions
+    attributes:
+      label: Permissions granted
+      description: Check which permissions you have granted to ARIA.
+      options:
+        - label: Location (for WiFi SSID)
+        - label: Activity Recognition
+        - label: Calendar
+        - label: Usage Stats (via adb or Settings)
+        - label: Notification Listener
 
   - type: textarea
     id: additional-context
@@ -83,9 +94,9 @@ body:
       label: Additional context
       description: |
         Add any other context about the problem here.
-        
-        If this is a crash report, paste or link the crash message here.
+
+        If this is a crash or error, include relevant logcat output filtered by `ARIA.` tags.
       placeholder: |
-        Crash log: https://katb.in/examplelink
+        adb logcat -s ARIA.ChatModule ARIA.SkillExecutor ARIA.ContextSignals
     validations:
       required: false

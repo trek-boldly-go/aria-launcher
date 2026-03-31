@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest features you want the developers (or contributors) to make for the launcher.
+description: Suggest a feature or improvement for ARIA.
 title: "[FEATURE] "
 labels: [feature-request, 'status: needs triage']
 type: Feature
@@ -7,16 +7,11 @@ body:
   - type: markdown
     attributes:
       value: |
-        > [!IMPORTANT]
-        > Lawnchair's issue tracker is maintained on a best-effort basis — due to limited resources, we do not guarantee that all issues will be triaged or checked by the developers.
-        > If you wish to help triage Lawnchair's issues, visit [#4232](https://github.com/LawnchairLauncher/lawnchair/issues/4232) for more information.
-        
-        Thanks for taking the time to file this issue! Here are a few things to do before submitting:
-        1. Use the [**latest nightly version**](https://github.com/LawnchairLauncher/lawnchair#development-builds) when requesting.
-        2. [**Read the FAQ**](https://lawnchair.app/faq) to check if your request is already planned by the developers.
-        3. Search **both [open and closed issues](https://github.com/LawnchairLauncher/lawnchair/issues?q=is%3Aissue+sort%3Aupdated-desc+)** for your feature request.
+        Thanks for suggesting an improvement! Before submitting:
+        1. Check the [Roadmap](https://github.com/trek-boldly-go/aria-launcher/blob/aria-dev/ROADMAP.md) to see if it's already planned.
+        2. Search **both [open and closed issues](https://github.com/trek-boldly-go/aria-launcher/issues?q=is%3Aissue+sort%3Aupdated-desc+)** for existing requests.
 
-        Please keep in mind that **we may not always implement this feature request**.
+        Keep in mind that ARIA's [non-goals](https://github.com/trek-boldly-go/aria-launcher/blob/aria-dev/ROADMAP.md#non-goals) include: replacing the app drawer, becoming a widget platform, and adding telemetry.
 
   - type: textarea
     id: feature-description
@@ -29,32 +24,35 @@ body:
   - type: textarea
     id: feature-usefulness
     attributes:
-      label: Why would it be useful to add?
-      description: Explain why this feature would be useful to you
+      label: Why would it be useful?
+      description: Explain the use case. What problem does this solve? What workflow does it improve?
     validations:
       required: true
 
   - type: dropdown
-    id: feature-in-version-two
+    id: feature-area
     attributes:
-      label: Did the feature exist in Lawnchair Legacy?
-      description: |
-        See [this FAQ page](https://lawnchair.app/faq/#what-happened-to-lawnchair-legacy) for more info about Lawnchair Legacy, previously
-        known as Lawnchair 2.
-        
+      label: Feature area
+      description: Which part of ARIA does this relate to?
       options:
-        - "Yes"
-        - "No"
+        - "Home screen / Brief cards"
+        - "Chat"
+        - "Skills"
+        - "Rules"
+        - "LLM providers"
+        - "Predictions / context signals"
+        - "Settings / onboarding"
+        - "Other"
     validations:
       required: true
 
   - type: textarea
     id: feature-examples
     attributes:
-      label: Example(s)
-      description: Post screenshots/drawings/links/etc of the feature request, or proof-of-concept images about the feature.
+      label: Examples
+      description: Screenshots, mockups, links, or descriptions of similar features in other apps.
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: additional-context

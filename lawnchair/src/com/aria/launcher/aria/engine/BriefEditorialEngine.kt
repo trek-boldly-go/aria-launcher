@@ -1,19 +1,27 @@
-// Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
+// Copyright (c) 2026 Donovon Simpson. See LICENSE-ARIA.md for licensing terms.
 package com.aria.launcher.aria.engine
 
+import android.content.Context
 import android.util.Log
+import com.aria.launcher.aria.chat.ToolExecutor
 import com.aria.launcher.aria.data.AriaNotificationListener
 import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.data.UsageDataRepository
 import com.aria.launcher.aria.data.WeatherProvider
+import com.aria.launcher.aria.engine.skills.AgentSkillEntry
+import com.aria.launcher.aria.engine.skills.AgentSkillManager
+import com.aria.launcher.aria.llm.AriaLlmClient
+import com.aria.launcher.aria.llm.AriaPrompts
 import com.aria.launcher.aria.llm.ChatMessage
 import com.aria.launcher.aria.llm.EditorialPrompts
+import com.aria.launcher.aria.llm.LlmProvider
 import com.aria.launcher.aria.llm.LlmProviderManager
 import com.aria.launcher.aria.llm.LlmResult
 import com.aria.launcher.aria.llm.Role
 import com.aria.launcher.aria.ui.brief.AlertSeverity
 import com.aria.launcher.aria.ui.brief.BriefAction
 import com.aria.launcher.aria.ui.brief.BriefItem
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.json.Json
@@ -23,6 +31,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.OkHttpClient
 
 /**
  * Calls the LLM once per context change, parses the JSON response, and returns
@@ -41,6 +50,9 @@ class BriefEditorialEngine @Inject constructor(
     private val usageDataRepository: UsageDataRepository,
     private val appLabelResolver: AppLabelResolver,
     private val appActivityCatalog: AppActivityCatalog,
+    private val agentSkillManager: AgentSkillManager,
+    @AriaLlmClient private val httpClient: OkHttpClient,
+    @ApplicationContext private val appContext: Context,
 ) {
     /**
      * Generates a curated Brief via LLM editorial.
@@ -54,6 +66,15 @@ class BriefEditorialEngine @Inject constructor(
         val notifications = buildNotificationSummary()
         val typicalApps = buildTypicalAppsSummary(context)
         val appActivities = buildActivitySummary(context)
+
+        // Build skill catalog for heartbeat injection
+        val heartbeatSkills = agentSkillManager.getHeartbeatSkills()
+        val skillCatalogText = if (heartbeatSkills.isNotEmpty()) {
+            heartbeatSkills.joinToString("\n") { "- ${it.name}: ${it.description}" }
+        } else {
+            ""
+        }
+
         val template = ariaPreferences.getEditorialPromptTemplate()
         val variables = EditorialPrompts.buildVariables(
             context = context,
@@ -62,9 +83,16 @@ class BriefEditorialEngine @Inject constructor(
             notifications = notifications,
             typicalApps = typicalApps,
             appActivities = appActivities,
+            skills = skillCatalogText,
         )
         val systemPrompt = EditorialPrompts.resolveTemplate(template, variables)
 
+        // If skills are available, use tool-calling loop so the LLM can fetch_url and activate_skill
+        if (heartbeatSkills.isNotEmpty()) {
+            return generateBriefWithTools(provider, systemPrompt, heartbeatSkills)
+        }
+
+        // Fallback: no skills, simple completion
         val result = provider.complete(
             systemPrompt = systemPrompt,
             messages = listOf(ChatMessage(Role.USER, "Generate the Brief for this context.")),
@@ -84,6 +112,70 @@ class BriefEditorialEngine @Inject constructor(
 
             else -> null
         }
+    }
+
+    /**
+     * Heartbeat path: uses completeWithTools() so the LLM can call fetch_url
+     * and activate_skill to bring external data into the Brief.
+     */
+    private suspend fun generateBriefWithTools(
+        provider: LlmProvider,
+        systemPrompt: String,
+        skills: List<AgentSkillEntry>,
+    ): List<BriefItem>? {
+        val toolExecutor = ToolExecutor(
+            context = appContext,
+            httpClient = httpClient,
+            agentSkillManager = agentSkillManager,
+        )
+        val skillNames = skills.map { it.name }
+        val tools = AriaPrompts.buildEditorialTools(skillNames)
+
+        var messages = listOf(ChatMessage(Role.USER, "Generate the Brief for this context."))
+        var round = 0
+
+        while (round < MAX_TOOL_ROUNDS) {
+            val result = provider.completeWithTools(
+                systemPrompt = systemPrompt,
+                messages = messages,
+                tools = tools,
+                maxTokens = 1024,
+            )
+
+            when (result) {
+                is LlmResult.Text -> {
+                    Log.d(TAG, "Heartbeat LLM response (round $round):\n${result.content}")
+                    return parseJsonToBriefItems(result.content)
+                }
+
+                is LlmResult.ToolUse -> {
+                    Log.d(
+                        TAG,
+                        "Heartbeat tool calls (round $round): " +
+                            result.toolCalls.joinToString { it.name },
+                    )
+                    val toolResults = result.toolCalls.map { toolCall ->
+                        toolExecutor.execute(toolCall)
+                    }
+                    val toolResultText = toolResults.joinToString("\n") {
+                        "[Tool ${it.toolName}]: ${it.result}"
+                    }
+                    messages = messages + listOf(
+                        ChatMessage(Role.ASSISTANT, result.content),
+                        ChatMessage(Role.USER, toolResultText),
+                    )
+                    round++
+                }
+
+                is LlmResult.Error -> {
+                    Log.w(TAG, "Heartbeat LLM failed: ${result.message}")
+                    return null
+                }
+            }
+        }
+
+        Log.w(TAG, "Heartbeat exceeded max tool rounds ($MAX_TOOL_ROUNDS)")
+        return null
     }
 
     private fun parseJsonToBriefItems(jsonText: String): List<BriefItem>? {
@@ -285,6 +377,7 @@ class BriefEditorialEngine @Inject constructor(
 
     companion object {
         private const val TAG = "ARIA.EditorialEngine"
+        private const val MAX_TOOL_ROUNDS = 3
 
         private val WEATHER_ICONS = setOf(
             "cloud", "rainy", "storm", "thunderstorm", "weather", "sunny",

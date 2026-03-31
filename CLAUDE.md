@@ -4,7 +4,7 @@ Read this file before working on this codebase. It contains critical build, arch
 
 ## Project Overview
 
-ARIA (Adaptive Reasoning Interface for Android) is an AI-native launcher built on Lawnchair/Launcher3. Architecture index: `docs/ARIA_PLAN.md`. Historical session specs: `docs/sessions/`
+ARIA (Adaptive Reasoning Interface for Android) is an AI-native launcher built on Lawnchair/Launcher3.
 
 ## Guidelines
 
@@ -129,9 +129,7 @@ Do **not** scatter ARIA logic across Lawnchair files. If you need to touch a Law
 
 ## Documentation Rules
 
-- **`docs/ARIA_PLAN.md`** is the architecture index — tech stack, key decisions, and overview. It is not the full spec.
-- **`docs/sessions/`** contains historical session specs (session-07 through session-17). These document the design decisions and reference implementations that shaped the current codebase. Useful as context when working in areas they cover.
-- **Never remove** code examples, data model definitions, reference implementations, or design specs from docs unless moving them to another tracked location. Summarizing reference implementations is data loss.
+- **`docs/`** contains user-facing guides (getting-started, llm-setup, rules, skill authoring) and developer docs (manual testing).
 - When consolidating or editing docs, preserve all detail. If in doubt, keep it.
 
 ## Working on ARIA
@@ -141,8 +139,7 @@ Development is agile and user-driven. The user builds, tests on-device, gathers 
 ### Workflow
 - **The user sets priorities.** Implement what is asked for. Do not anticipate or queue up future work.
 - **Iterate quickly.** Small, focused changes that can be built, deployed, and tested on-device.
-- **Read before writing.** Understand the existing code in the area you're changing. Use `docs/sessions/` as historical context if the area was shaped by a specific session.
-- **`docs/ARIA_PLAN.md`** is 2000+ lines — do not read it upfront. Use it only as a reference when you need architectural context not evident from the code.
+- **Read before writing.** Understand the existing code in the area you're changing.
 
 ### Maintain the vision
 - ARIA is a **temporal UI** — surfaces change based on context, not user arrangement. Every UI decision must pass the test: "Does showing this require the user to do something, or is ARIA already handling it?"
@@ -156,7 +153,7 @@ Development is agile and user-driven. The user builds, tests on-device, gathers 
 This repo has a dual-license structure:
 
 - **Upstream code** (AOSP + Lawnchair) is Apache 2.0 — see `LICENSE.txt`
-- **ARIA-original code** is proprietary — see `LICENSE-ARIA.md`
+- **ARIA-original code** is dual-licensed: GPL-3.0 for community use, commercial license available — see `LICENSE-ARIA.md`
 
 When writing new code:
 
@@ -164,7 +161,7 @@ When writing new code:
 2. **Minimize changes to Lawnchair files.** When integrating ARIA into upstream files (e.g., `PreferencesDashboard.kt`, `LawnchairLauncher.kt`), keep the touch points thin — a one-line import + function call, not large blocks of logic.
 3. **If a Lawnchair file becomes substantially ARIA-authored** (70%+ rewritten), add this header at the top of that file:
    ```
-   // Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
+   // Copyright (c) 2026 Donovon Simpson. See LICENSE-ARIA.md for licensing terms.
    ```
    Do not add this header to files with minor ARIA modifications.
 4. **Never remove** the Apache 2.0 `LICENSE.txt` or upstream copyright notices.

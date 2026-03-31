@@ -1,11 +1,24 @@
 # ARIA License
 
-Copyright (c) 2026 Donovon Simpson. All rights reserved.
+Copyright (c) 2026 Donovon Simpson.
 
-The ARIA-original source code in this repository is proprietary and
-confidential. No license, express or implied, is granted to any party
-to use, copy, modify, merge, publish, distribute, sublicense, or sell
-copies of the ARIA-original source code.
+## Dual License
+
+ARIA-original source code in this repository is available under two licenses:
+
+### 1. Community License (GPL-3.0)
+
+You may use, copy, modify, and distribute the ARIA-original source code under
+the terms of the GNU General Public License, Version 3.0. Any derivative work
+must also be licensed under GPL-3.0 and made available as open source.
+
+See [LICENSE-GPL.txt](LICENSE-GPL.txt) for the full GPL-3.0 text.
+
+### 2. Commercial License
+
+Companies or individuals who wish to use ARIA-original source code in
+closed-source or proprietary products must obtain a commercial license from
+Donovon Simpson. Contact: [GitHub Sponsors](https://github.com/sponsors/trek-boldly-go)
 
 ## Scope
 
@@ -16,14 +29,13 @@ including but not limited to:
 - `lawnchair/src/app/lawnchair/ui/preferences/destinations/AriaDebugPreferences.kt`
 - `lawnchair/res/layout/aria_*.xml`
 - `schemas/com.aria.launcher.aria.data.AriaDatabase/`
-- `docs/ARIA_PLAN.md`
 - Any file containing an ARIA copyright header
 
 ## Upstream Code
 
 Files originating from the Android Open Source Project (AOSP) and
 Lawnchair remain under the Apache License, Version 2.0. See
-`LICENSE.txt` for the full Apache 2.0 text.
+[LICENSE.txt](LICENSE.txt) for the full Apache 2.0 text.
 
 ARIA modifications to upstream files (e.g., `build.gradle`,
 `AndroidManifest.xml`, Lawnchair source files) are considered derivative

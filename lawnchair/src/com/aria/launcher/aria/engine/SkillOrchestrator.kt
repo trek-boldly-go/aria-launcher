@@ -1,10 +1,12 @@
-// Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
+// Copyright (c) 2026 Donovon Simpson. See LICENSE-ARIA.md for licensing terms.
 package com.aria.launcher.aria.engine
 
 import android.util.Log
+import com.aria.launcher.aria.data.AppSkill
 import com.aria.launcher.aria.data.BuiltInSkills
 import com.aria.launcher.aria.data.SkillDao
 import com.aria.launcher.aria.data.SkillResult
+import com.aria.launcher.aria.engine.skills.AgentSkillManager
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +17,7 @@ import kotlinx.coroutines.withContext
 class SkillOrchestrator @Inject constructor(
     private val skillDao: SkillDao,
     private val executorRegistry: SkillExecutorRegistry,
+    private val agentSkillManager: AgentSkillManager,
 ) {
 
     fun observeActiveResults(): Flow<List<SkillResult>> {
@@ -27,6 +30,28 @@ class SkillOrchestrator @Inject constructor(
         if (existing.isEmpty()) {
             Log.d(TAG, "No skills found, seeding built-in skills")
             skillDao.insertSkills(BuiltInSkills.all())
+        }
+
+        // Seed scheduled agentskills that aren't yet in the database
+        agentSkillManager.ensureInitialized()
+        val scheduledSkills = agentSkillManager.getScheduledSkills()
+        val existingIds = skillDao.getAllSkills().map { it.id }.toSet()
+        for (skill in scheduledSkills) {
+            if (skill.name !in existingIds) {
+                val appSkill = AppSkill(
+                    id = skill.name,
+                    appPackage = "",
+                    name = skill.name,
+                    description = skill.description,
+                    triggerType = "SCHEDULED",
+                    sourceType = "EXTERNAL_HTTP",
+                    contextMatch = skill.ariaContext,
+                    refreshIntervalMin = skill.ariaRefresh,
+                    enabled = true,
+                )
+                skillDao.insertSkill(appSkill)
+                Log.d(TAG, "Seeded scheduled agentskill: ${skill.name}")
+            }
         }
     }
 

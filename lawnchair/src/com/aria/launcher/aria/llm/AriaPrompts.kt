@@ -21,6 +21,7 @@ object AriaPrompts {
         userMemories: List<String> = emptyList(),
         capabilitySummary: String = "",
         activitySummary: String = "",
+        skillCatalog: String = "",
     ): String {
         val now = SimpleDateFormat("EEEE, MMMM d, yyyy h:mm a", Locale.getDefault()).format(Date())
         val memoriesSection = if (userMemories.isNotEmpty()) {
@@ -50,6 +51,15 @@ object AriaPrompts {
         } else {
             ""
         }
+
+        val skillsSection = if (skillCatalog.isNotEmpty()) {
+            """
+            $skillCatalog
+            Use fetch_url to retrieve data from APIs when skills instruct you to.
+            """
+        } else {
+            ""
+        }
         return """
             You are ARIA, an AI assistant embedded in the user's Android home screen launcher.
             You are proactive, concise, and context-aware. You surface information the user needs
@@ -68,6 +78,7 @@ object AriaPrompts {
 
             $capabilitiesSection
             $activitiesSection
+            $skillsSection
             Guidelines:
             - Keep responses concise: 1-3 sentences unless the user asks for more.
             - When taking actions, use the provided tools rather than describing what to do.
@@ -129,8 +140,35 @@ object AriaPrompts {
         Respond with only the JSON array of skill IDs, no other text.
     """.trimIndent()
 
-    /** The base set of tools always available in chat. */
+    /** The base set of tools always available in chat and editorial engine. */
     val coreTools: List<ToolDefinition> = listOf(
+        ToolDefinition(
+            name = "fetch_url",
+            description = "Fetch data from a URL and return the response body. " +
+                "Use for REST APIs, JSON endpoints, and web data. " +
+                "Returns the HTTP status code and response text.",
+            inputSchema = mapOf(
+                "properties" to buildJsonObject {
+                    putJsonObject("url") {
+                        put("type", "string")
+                        put("description", "The URL to fetch (must be HTTPS or HTTP)")
+                    }
+                    putJsonObject("method") {
+                        put("type", "string")
+                        put("description", "HTTP method: GET or POST. Defaults to GET.")
+                    }
+                    putJsonObject("headers") {
+                        put("type", "object")
+                        put("description", "Optional HTTP headers as key-value pairs (e.g., Authorization)")
+                    }
+                    putJsonObject("body") {
+                        put("type", "string")
+                        put("description", "Optional request body for POST requests")
+                    }
+                },
+                "required" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("url"))),
+            ),
+        ),
         ToolDefinition(
             name = "open_app",
             description = "Open an installed app, optionally targeting a specific screen via deep link or component name",
@@ -227,8 +265,12 @@ object AriaPrompts {
     /**
      * Builds a dynamic tool list based on what the device can actually do.
      * Starts with [coreTools] and adds capability-backed tools.
+     * If skill names are provided, includes the activate_skill tool.
      */
-    fun buildTools(capabilities: List<DeviceCapabilityCatalog.AppCapability>): List<ToolDefinition> {
+    fun buildTools(
+        capabilities: List<DeviceCapabilityCatalog.AppCapability>,
+        skillNames: List<String> = emptyList(),
+    ): List<ToolDefinition> {
         val capCategories = capabilities.map { it.category }.toSet()
         val dynamic = mutableListOf<ToolDefinition>()
 
@@ -377,8 +419,47 @@ object AriaPrompts {
             )
         }
 
+        // Add activate_skill tool if skills are available
+        if (skillNames.isNotEmpty()) {
+            dynamic.add(buildActivateSkillTool(skillNames))
+        }
+
         return coreTools + dynamic
     }
+
+    /**
+     * Builds the minimal tool set for the editorial engine (heartbeat).
+     * Only includes fetch_url and optionally activate_skill — not the full device tool set.
+     */
+    fun buildEditorialTools(skillNames: List<String>): List<ToolDefinition> {
+        val tools = mutableListOf(coreTools.first { it.name == "fetch_url" })
+        if (skillNames.isNotEmpty()) {
+            tools.add(buildActivateSkillTool(skillNames))
+        }
+        return tools
+    }
+
+    /** Creates the activate_skill tool definition for the given skill names. */
+    fun buildActivateSkillTool(skillNames: List<String>): ToolDefinition = ToolDefinition(
+        name = "activate_skill",
+        description = "Load the full instructions for an installed skill. " +
+            "Call this before using a skill to get its detailed instructions. " +
+            "Available skills: ${skillNames.joinToString(", ")}",
+        inputSchema = mapOf(
+            "properties" to buildJsonObject {
+                putJsonObject("name") {
+                    put("type", "string")
+                    put(
+                        "description",
+                        "Skill name to activate (one of: ${skillNames.joinToString(", ")})",
+                    )
+                }
+            },
+            "required" to kotlinx.serialization.json.JsonArray(
+                listOf(JsonPrimitive("name")),
+            ),
+        ),
+    )
 
     /** Backward-compatible alias for code that still references ariaTools. */
     val ariaTools: List<ToolDefinition> get() = coreTools

@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 
 enum class TriggerType { PROACTIVE, ON_DEMAND, SCHEDULED }
 
-enum class SkillSourceType { BUILT_IN, SHORTCUT, INTENT, MCP, ACCESSIBILITY }
+enum class SkillSourceType { BUILT_IN, SHORTCUT, INTENT, MCP, ACCESSIBILITY, EXTERNAL_HTTP }
 
 @Entity(tableName = "app_skills")
 data class AppSkill(

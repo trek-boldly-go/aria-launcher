@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Donovon Simpson. All rights reserved. See LICENSE-ARIA.md
+// Copyright (c) 2026 Donovon Simpson. See LICENSE-ARIA.md for licensing terms.
 package com.aria.launcher.aria.chat
 
 import android.content.Context
@@ -7,6 +7,8 @@ import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.data.UserMemoryDao
 import com.aria.launcher.aria.engine.AppActivityCatalog
 import com.aria.launcher.aria.engine.DeviceCapabilityCatalog
+import com.aria.launcher.aria.engine.skills.AgentSkillManager
+import com.aria.launcher.aria.llm.AriaLlmClient
 import com.aria.launcher.aria.llm.LlmProviderManager
 import dagger.Module
 import dagger.Provides
@@ -14,6 +16,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
+import okhttp3.OkHttpClient
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -30,6 +33,8 @@ object ChatModule {
         ariaChatHandler: AriaChatHandler,
         capabilityCatalog: DeviceCapabilityCatalog,
         appActivityCatalog: AppActivityCatalog,
+        @AriaLlmClient httpClient: OkHttpClient,
+        agentSkillManager: AgentSkillManager,
     ): ChatState = ChatState(
         context,
         llmProviderManager,
@@ -39,5 +44,7 @@ object ChatModule {
         ariaChatHandler,
         capabilityCatalog,
         appActivityCatalog,
+        httpClient,
+        agentSkillManager,
     )
 }
