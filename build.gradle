@@ -136,8 +136,8 @@ final def ciRunNumber = System.getenv("GITHUB_RUN_NUMBER") ?: ""
 final def isReleaseBuild = ciBuild && ciRef.contains("beta")
 final def devReleaseName = ciBuild ? "Dev.(#${ciRunNumber})" : "Dev.(${buildCommit})"
 
-final def version = "16"
-final def releaseName = "Development 5.1"
+final def version = "0.1.0"
+final def releaseName = "Alpha"
 final def versionDisplayName = "${version}.${isReleaseBuild ? releaseName : devReleaseName}"
 final def majorVersion = versionDisplayName.split("\\.")[0]
 
@@ -148,10 +148,10 @@ android {
     namespace "com.android.launcher3"
     defaultConfig {
         /*
-         * Lawnchair Launcher 16.0 Development 5.1
+         * ARIA Launcher 0.1.0 Alpha
          * see CONTRIBUTING.md#versioning-scheme
          */
-        versionCode 16_00_01_05_01
+        versionCode 1
         versionName "${versionDisplayName}"
         buildConfigField "String", "VERSION_DISPLAY_NAME", "\"${versionDisplayName}\""
         buildConfigField "String", "MAJOR_VERSION", "\"${majorVersion}\""
@@ -167,7 +167,7 @@ android {
     applicationVariants.configureEach { variant ->
         variant.outputs.configureEach {
             def channel = variant.productFlavors.last().name
-            outputFileName = "Lawnchair.${variant.versionName}.$channel.${variant.buildType.name}.apk"
+            outputFileName = "ARIA.${variant.versionName}.$channel.${variant.buildType.name}.apk"
         }
     }
 
