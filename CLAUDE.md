@@ -37,16 +37,23 @@ ARIA (Adaptive Reasoning Interface for Android) is an AI-native launcher built o
 
 - `origin` → `trek-boldly-go/aria-launcher` (private, push target)
 - `upstream` → `LawnchairLauncher/lawnchair` (fetch-only for syncing)
-- Working branch: `aria/main`
-- Upstream sync: `git fetch upstream 16-dev && git merge upstream/16-dev`
+- Working branch: `aria-dev` (matches `*-dev` CI trigger pattern)
+- Upstream sync: `git fetch upstream refs/heads/16-dev:refs/remotes/upstream/16-dev && git merge upstream/16-dev`
+
+### CI Branching
+
+- CI (`.github/workflows/ci.yml`) triggers on pushes to `*-dev` branches (including `aria-dev`) and on all PRs.
+- Required checks: `build-debug-apk`, `check-style` (spotlessCheck), `final-status`.
+- The labeler (`.github/labeler.yml`) marks PRs as `outdated` unless they target `16-dev` or `aria-dev`.
+- Feature branches should branch from `aria-dev` and PR back to `aria-dev`.
 
 ## Build
 
 ```bash
-JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew assembleLawnWithQuickstepPlayDebug 2>&1 | tail -20
+./gradlew assembleLawnWithQuickstepPlayDebug 2>&1 | tail -20
 ```
 
-JDK must be Android Studio's bundled JBR 21. System JDK 24 and Temurin 17 both crash.
+Requires JDK 21. The `JAVA_HOME` path is set in `gradle.properties` (`org.gradle.java.home`) and should point to your JDK 21 installation.
 
 ## Build Variants
 
@@ -63,7 +70,7 @@ The development variant is **`lawnWithQuickstepPlayDebug`** — use this for all
 ## Test Commands
 
 ```bash
-JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew testLawnWithQuickstepPlayDebugUnitTest
+./gradlew testLawnWithQuickstepPlayDebugUnitTest
 ```
 
 - Tests live in `tests/unit/` (not `src/test/`)
@@ -73,8 +80,8 @@ JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradle
 ## Lint / Format Commands
 
 ```bash
-JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew spotlessCheck    # check formatting
-JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew spotlessApply    # auto-fix formatting
+./gradlew spotlessCheck    # check formatting
+./gradlew spotlessApply    # auto-fix formatting
 ```
 
 - Spotless targets `lawnchair/src/**/*.kt` only (not AOSP/Launcher3 code in `src/`)

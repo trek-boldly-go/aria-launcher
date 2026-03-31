@@ -5,4 +5,6 @@ housekeeping:
   - docs/**
 
 outdated:
-  - base-branch: '!16-dev'
+  - base-branch:
+      - '!16-dev'
+      - '!aria-dev'
