@@ -39,6 +39,8 @@ class BriefEditorialEngine @Inject constructor(
     private val ariaPreferences: AriaPreferences,
     private val capabilityCatalog: DeviceCapabilityCatalog,
     private val usageDataRepository: UsageDataRepository,
+    private val appLabelResolver: AppLabelResolver,
+    private val appActivityCatalog: AppActivityCatalog,
 ) {
     /**
      * Generates a curated Brief via LLM editorial.
@@ -51,6 +53,7 @@ class BriefEditorialEngine @Inject constructor(
         val capabilities = capabilityCatalog.getCapabilitySummaryForPrompt()
         val notifications = buildNotificationSummary()
         val typicalApps = buildTypicalAppsSummary(context)
+        val appActivities = buildActivitySummary(context)
         val template = ariaPreferences.getEditorialPromptTemplate()
         val variables = EditorialPrompts.buildVariables(
             context = context,
@@ -58,6 +61,7 @@ class BriefEditorialEngine @Inject constructor(
             capabilities = capabilities,
             notifications = notifications,
             typicalApps = typicalApps,
+            appActivities = appActivities,
         )
         val systemPrompt = EditorialPrompts.resolveTemplate(template, variables)
 
@@ -241,7 +245,17 @@ class BriefEditorialEngine @Inject constructor(
         val contextKey = context.contextKey.toStringKey()
         val predictions = usageDataRepository.getTopApps(contextKey, limit = 5)
         if (predictions.isEmpty()) return ""
-        return predictions.joinToString(", ") { it.packageName.substringAfterLast('.').replaceFirstChar { c -> c.uppercase() } }
+        return predictions.joinToString(", ") { appLabelResolver.resolve(it.packageName) }
+    }
+
+    /**
+     * Builds a compact summary of discoverable app screens for the editorial prompt.
+     * Only includes apps the user typically opens in this context.
+     */
+    private suspend fun buildActivitySummary(context: AriaContext): String {
+        val packages = context.recentAppPackages.take(10)
+        if (packages.isEmpty()) return ""
+        return appActivityCatalog.getPromptSummary(packages, maxPerApp = 3)
     }
 
     /**
@@ -257,7 +271,7 @@ class BriefEditorialEngine @Inject constructor(
             .sortedByDescending { it.value.size }
             .take(5)
             .joinToString(", ") { (pkg, items) ->
-                val label = pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() }
+                val label = appLabelResolver.resolve(pkg)
                 val latest = items.maxByOrNull { it.postedTime }?.title
                 if (latest != null && items.size > 1) {
                     "$label (${items.size}, latest: $latest)"

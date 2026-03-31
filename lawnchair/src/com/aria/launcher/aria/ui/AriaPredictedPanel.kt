@@ -2,6 +2,8 @@ package com.aria.launcher.aria.ui
 
 import android.content.Context
 import android.util.AttributeSet
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +38,7 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
+import kotlin.math.abs
 
 /**
  * Full-page predicted apps panel that sits below the smartspace on the
@@ -91,6 +94,31 @@ class AriaPredictedPanel @JvmOverloads constructor(
             }
         }
         addView(composeView)
+    }
+
+    private var touchDownX = 0f
+    private var touchDownY = 0f
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                touchDownX = ev.x
+                touchDownY = ev.y
+                // Tentatively claim touch so we can determine direction
+                parent?.requestDisallowInterceptTouchEvent(true)
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                val dx = abs(ev.x - touchDownX)
+                val dy = abs(ev.y - touchDownY)
+                if (dx > touchSlop && dx > dy) {
+                    // Horizontal gesture — release to parent for page swiping
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                }
+            }
+        }
+        return false
     }
 
     override fun onAttachedToWindow() {

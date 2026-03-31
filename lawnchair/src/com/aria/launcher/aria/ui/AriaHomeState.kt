@@ -439,7 +439,7 @@ class AriaHomeState @Inject constructor(
 
     companion object {
         private const val TAG = "ARIA.HomeState"
-        private const val MAX_PREDICTED_APPS = 20
+        private const val MAX_PREDICTED_APPS = 5
 
         /** Virtual package names → ordered list of real packages to try. */
         private val PACKAGE_ALIASES = mapOf(

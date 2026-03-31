@@ -42,6 +42,7 @@ object EditorialPrompts {
         notifications: String = "",
         battery: String = "",
         typicalApps: String = "",
+        appActivities: String = "",
     ): Map<String, String> {
         val key = context.contextKey
         val now = context.timestampMs
@@ -122,6 +123,7 @@ object EditorialPrompts {
                 if (level >= 0) "$level%${if (context.isCharging) " (charging)" else ""}" else "unknown"
             },
             "typical_apps" to typicalApps.ifEmpty { "unknown" },
+            "app_activities" to appActivities.ifEmpty { "none discovered" },
         )
     }
 

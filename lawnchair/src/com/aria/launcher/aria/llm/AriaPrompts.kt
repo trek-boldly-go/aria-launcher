@@ -20,6 +20,7 @@ object AriaPrompts {
         upcomingEvents: List<String> = emptyList(),
         userMemories: List<String> = emptyList(),
         capabilitySummary: String = "",
+        activitySummary: String = "",
     ): String {
         val now = SimpleDateFormat("EEEE, MMMM d, yyyy h:mm a", Locale.getDefault()).format(Date())
         val memoriesSection = if (userMemories.isNotEmpty()) {
@@ -35,6 +36,16 @@ object AriaPrompts {
             """
             Available device capabilities:
             $capabilitySummary
+            """
+        } else {
+            ""
+        }
+
+        val activitiesSection = if (activitySummary.isNotEmpty()) {
+            """
+            Available app screens (use component param in open_app for targeted navigation):
+            $activitySummary
+            When you can open a specific screen instead of the whole app, prefer the specific screen.
             """
         } else {
             ""
@@ -56,6 +67,7 @@ object AriaPrompts {
             $memoriesSection
 
             $capabilitiesSection
+            $activitiesSection
             Guidelines:
             - Keep responses concise: 1-3 sentences unless the user asks for more.
             - When taking actions, use the provided tools rather than describing what to do.
@@ -121,12 +133,26 @@ object AriaPrompts {
     val coreTools: List<ToolDefinition> = listOf(
         ToolDefinition(
             name = "open_app",
-            description = "Open an installed app by package name",
+            description = "Open an installed app, optionally targeting a specific screen via deep link or component name",
             inputSchema = mapOf(
                 "properties" to buildJsonObject {
                     putJsonObject("package_name") {
                         put("type", "string")
                         put("description", "Android package name (e.g., com.spotify.music)")
+                    }
+                    putJsonObject("intent_uri") {
+                        put("type", "string")
+                        put(
+                            "description",
+                            "Deep link URI to open a specific screen (e.g., spotify://search). Optional.",
+                        )
+                    }
+                    putJsonObject("component") {
+                        put("type", "string")
+                        put(
+                            "description",
+                            "Fully qualified activity component (e.g., com.spotify.music/.ui.SearchActivity). Optional.",
+                        )
                     }
                 },
                 "required" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("package_name"))),

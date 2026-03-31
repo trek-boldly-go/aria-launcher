@@ -7,6 +7,7 @@ import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.data.UserMemory
 import com.aria.launcher.aria.data.UserMemoryDao
+import com.aria.launcher.aria.engine.AppActivityCatalog
 import com.aria.launcher.aria.engine.ContextKey
 import com.aria.launcher.aria.engine.DeviceCapabilityCatalog
 import com.aria.launcher.aria.llm.AriaPrompts
@@ -37,6 +38,7 @@ class ChatState(
     private val ariaPreferences: AriaPreferences,
     private val ariaChatHandler: AriaChatHandler,
     private val capabilityCatalog: DeviceCapabilityCatalog,
+    private val appActivityCatalog: AppActivityCatalog,
 ) {
     private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
     val messages: StateFlow<List<UiMessage>> = _messages.asStateFlow()
@@ -144,11 +146,21 @@ class ChatState(
             }
             val capabilitySummary = capabilityCatalog.getCapabilitySummaryForPrompt()
 
+            // Build activity summary for apps the user has
+            val topPackages = capabilities
+                .map { it.packageName }
+                .distinct()
+                .take(10)
+            val activitySummary = withContext(Dispatchers.IO) {
+                appActivityCatalog.getPromptSummary(topPackages, maxPerApp = 3)
+            }
+
             val systemPrompt = AriaPrompts.buildSystemPrompt(
                 signals = contextSignalManager,
                 contextKey = contextKey,
                 userMemories = memories.map { it.fact },
                 capabilitySummary = capabilitySummary,
+                activitySummary = activitySummary,
             )
 
             val tools = AriaPrompts.buildTools(capabilities)

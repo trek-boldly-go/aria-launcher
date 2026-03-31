@@ -41,6 +41,7 @@ class AriaContextMonitor @Inject constructor(
     private val ariaPreferences: AriaPreferences,
     private val ssidClassificationService: SsidClassificationService,
     private val ruleEvaluator: AriaRuleEvaluator,
+    private val appLabelResolver: AppLabelResolver,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -93,6 +94,7 @@ class AriaContextMonitor @Inject constructor(
                 wifiScanner = wifiScanner,
                 homeWifiSsid = cachedHomeWifi,
                 workWifiSsid = cachedWorkWifi,
+                appLabelResolver = appLabelResolver,
             )
 
             // Session 9: classify the current SSID venue

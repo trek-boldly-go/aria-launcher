@@ -5,6 +5,7 @@ import android.content.Context
 import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.data.UserMemoryDao
+import com.aria.launcher.aria.engine.AppActivityCatalog
 import com.aria.launcher.aria.engine.DeviceCapabilityCatalog
 import com.aria.launcher.aria.llm.LlmProviderManager
 import dagger.Module
@@ -28,6 +29,7 @@ object ChatModule {
         ariaPreferences: AriaPreferences,
         ariaChatHandler: AriaChatHandler,
         capabilityCatalog: DeviceCapabilityCatalog,
+        appActivityCatalog: AppActivityCatalog,
     ): ChatState = ChatState(
         context,
         llmProviderManager,
@@ -36,5 +38,6 @@ object ChatModule {
         ariaPreferences,
         ariaChatHandler,
         capabilityCatalog,
+        appActivityCatalog,
     )
 }

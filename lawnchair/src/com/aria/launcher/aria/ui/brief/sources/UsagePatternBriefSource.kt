@@ -2,6 +2,8 @@
 package com.aria.launcher.aria.ui.brief.sources
 
 import com.aria.launcher.aria.data.UsageDataRepository
+import com.aria.launcher.aria.engine.AppActivityCatalog
+import com.aria.launcher.aria.engine.AppLabelResolver
 import com.aria.launcher.aria.engine.AriaContext
 import com.aria.launcher.aria.ui.brief.BriefAction
 import com.aria.launcher.aria.ui.brief.BriefDataSource
@@ -10,15 +12,17 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Generates proactive suggestion cards based on app usage patterns.
+ * Generates proactive suggestion cards only when a specific deep-link action is available.
  *
- * When no LLM is configured, this source provides "You usually open X around now"
- * cards for apps the user typically opens in the current time/day context but
- * hasn't opened recently.
+ * Will NOT produce generic "You usually open X now" cards — the predicted apps row
+ * already handles frequently-used apps. Only surfaces cards when [AppActivityCatalog]
+ * provides a specific screen to deep-link into (e.g., "Portfolio" in Robinhood).
  */
 @Singleton
 class UsagePatternBriefSource @Inject constructor(
     private val usageDataRepository: UsageDataRepository,
+    private val appLabelResolver: AppLabelResolver,
+    private val appActivityCatalog: AppActivityCatalog,
 ) : BriefDataSource {
 
     override val sourceId: String = "usage_patterns"
@@ -30,21 +34,26 @@ class UsagePatternBriefSource @Inject constructor(
 
         val recentPackages = context.recentAppPackages.toSet()
 
+        // Only produce cards when we have a specific deep-link action to offer.
+        // Generic "you usually open X" cards are useless — the predicted apps row
+        // already surfaces frequently-used apps. Cards must earn their space.
         return predictions
             .filter { it.packageName !in recentPackages }
-            .take(2)
-            .map { prediction ->
-                val appLabel = prediction.packageName
-                    .substringAfterLast('.')
-                    .replaceFirstChar { it.uppercase() }
+            .take(3)
+            .mapNotNull { prediction ->
+                val activities = appActivityCatalog.getActivities(prediction.packageName)
+                val topActivity = activities.firstOrNull() ?: return@mapNotNull null
+
+                val component = topActivity.componentName.flattenToShortString()
                 BriefItem.ProactiveSuggestion(
-                    headline = "You usually open $appLabel now",
-                    rationale = "Based on your usage pattern",
+                    headline = topActivity.label,
+                    rationale = appLabelResolver.resolve(prediction.packageName),
                     action = BriefAction(
                         label = "Open",
-                        intentUri = "package:${prediction.packageName}",
+                        intentUri = "intent:#Intent;component=$component;end",
                     ),
                 )
             }
+            .take(2)
     }
 }

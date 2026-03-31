@@ -2,8 +2,10 @@
 package com.aria.launcher.aria.chat
 
 import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.AlarmClock
 import android.provider.CalendarContract
@@ -49,11 +51,48 @@ class ToolExecutor(private val context: Context) {
     private fun executeOpenApp(toolCall: ToolCall): ToolResult {
         val packageName = toolCall.arguments["package_name"]?.jsonPrimitive?.contentOrNull
             ?: return ToolResult(toolCall.id, toolCall.name, "Missing package_name", false)
+        val component = toolCall.arguments["component"]?.jsonPrimitive?.contentOrNull
+        val intentUri = toolCall.arguments["intent_uri"]?.jsonPrimitive?.contentOrNull
 
-        val intent = context.packageManager.getLaunchIntentForPackage(packageName)
-            ?: return ToolResult(toolCall.id, toolCall.name, "App not found: $packageName", false)
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        return launchIntent(intent, toolCall, "Opened $packageName")
+        val intent = when {
+            // Priority 1: explicit component — verify it's exported before launching
+            component != null -> {
+                val cn = ComponentName.unflattenFromString(component)
+                    ?: return ToolResult(toolCall.id, toolCall.name, "Invalid component: $component", false)
+                try {
+                    val activityInfo = context.packageManager.getActivityInfo(cn, 0)
+                    if (!activityInfo.exported) {
+                        return ToolResult(toolCall.id, toolCall.name, "Activity is not exported: $component", false)
+                    }
+                } catch (_: PackageManager.NameNotFoundException) {
+                    return ToolResult(toolCall.id, toolCall.name, "Activity not found: $component", false)
+                }
+                Intent().apply {
+                    setComponent(cn)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+
+            // Priority 2: deep link URI
+            intentUri != null -> {
+                Intent(Intent.ACTION_VIEW, Uri.parse(intentUri)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+
+            // Priority 3: default launch activity
+            else -> {
+                context.packageManager.getLaunchIntentForPackage(packageName)
+                    ?: return ToolResult(toolCall.id, toolCall.name, "App not found: $packageName", false)
+            }
+        }
+
+        val desc = when {
+            component != null -> "Opened $packageName (${component.substringAfterLast('.')})"
+            intentUri != null -> "Opened $packageName via $intentUri"
+            else -> "Opened $packageName"
+        }
+        return launchIntent(intent, toolCall, desc)
     }
 
     private fun executeSearchWeb(toolCall: ToolCall): ToolResult {

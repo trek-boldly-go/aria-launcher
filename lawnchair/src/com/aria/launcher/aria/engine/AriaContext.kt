@@ -2,7 +2,6 @@
 package com.aria.launcher.aria.engine
 
 import android.content.Context
-import android.content.pm.PackageManager
 import com.aria.launcher.aria.data.CalendarEventProvider
 import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.data.NearbyWifiScanner
@@ -72,6 +71,7 @@ data class AriaContext(
             wifiScanner: NearbyWifiScanner,
             homeWifiSsid: String?,
             workWifiSsid: String?,
+            appLabelResolver: AppLabelResolver? = null,
         ): AriaContext {
             val snapshot = contextSignalManager.snapshot()
             val now = System.currentTimeMillis()
@@ -95,9 +95,11 @@ data class AriaContext(
                 .distinct()
                 .take(10)
 
-            val pm = appContext.packageManager
-            val appLabels = recentApps.map { pkg ->
-                resolveAppLabel(pm, pkg)
+            val appLabels = if (appLabelResolver != null) {
+                recentApps.map { pkg -> appLabelResolver.resolve(pkg) }
+            } else {
+                val pm = appContext.packageManager
+                recentApps.map { pkg -> resolveAppLabelFallback(pm, pkg) }
             }
 
             return AriaContext(
@@ -118,12 +120,14 @@ data class AriaContext(
     }
 }
 
-private fun resolveAppLabel(pm: PackageManager, packageName: String): String = try {
+/** Fallback label resolution when [AppLabelResolver] is not available. */
+private fun resolveAppLabelFallback(
+    pm: android.content.pm.PackageManager,
+    packageName: String,
+): String = try {
     pm.getApplicationInfo(packageName, 0).loadLabel(pm).toString()
-} catch (_: PackageManager.NameNotFoundException) {
-    // Uninstalled or system app — extract readable name from package
-    packageName.substringAfterLast('.')
-        .replaceFirstChar { it.uppercase() }
+} catch (_: android.content.pm.PackageManager.NameNotFoundException) {
+    packageName.substringAfterLast('.').replaceFirstChar { it.uppercase() }
 }
 
 /**

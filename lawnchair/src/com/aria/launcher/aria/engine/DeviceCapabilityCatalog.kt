@@ -29,6 +29,7 @@ import kotlinx.coroutines.withContext
 @Singleton
 class DeviceCapabilityCatalog @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val appLabelResolver: AppLabelResolver,
 ) {
     data class AppCapability(
         val packageName: String,
@@ -86,7 +87,7 @@ class DeviceCapabilityCatalog @Inject constructor(
                 val resolved = pm.queryIntentActivities(probe.intent, PackageManager.MATCH_DEFAULT_ONLY)
                 for (info in resolved.take(MAX_APPS_PER_PROBE)) {
                     val label = info.loadLabel(pm)?.toString()
-                        ?: info.activityInfo.packageName.substringAfterLast('.')
+                        ?: appLabelResolver.resolve(info.activityInfo.packageName)
                     results.add(
                         AppCapability(
                             packageName = info.activityInfo.packageName,
