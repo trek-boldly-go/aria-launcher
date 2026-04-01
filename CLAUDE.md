@@ -40,6 +40,10 @@ ARIA (Adaptive Reasoning Interface for Android) is an AI-native launcher built o
 - Working branch: `aria-dev` (matches `*-dev` CI trigger pattern)
 - Upstream sync: `git fetch upstream refs/heads/16-dev:refs/remotes/upstream/16-dev && git merge upstream/16-dev`
 
+### Branch Protection
+
+`aria-dev` is protected — no direct pushes, even for admins. All changes must go through a PR with passing CI. Create a feature branch, push it, open a PR targeting `aria-dev`, and merge after CI passes.
+
 ### CI Branching
 
 - CI (`.github/workflows/ci.yml`) triggers on PRs and manual dispatch only (not on push).
