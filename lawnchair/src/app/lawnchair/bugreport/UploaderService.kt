@@ -6,6 +6,7 @@ import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.android.launcher3.R
 import java.util.LinkedList
@@ -62,7 +63,8 @@ class UploaderService : Service() {
 
         Log.d("DUS", "onCreate")
 
-        startForeground(
+        ServiceCompat.startForeground(
+            this,
             101,
             NotificationCompat.Builder(this, BugReportReceiver.STATUS_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_bug_notification)

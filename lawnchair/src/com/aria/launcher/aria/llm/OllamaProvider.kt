@@ -82,6 +82,7 @@ class OllamaProvider(
             override fun onResponse(call: Call, response: Response) {
                 try {
                     if (!response.isSuccessful) {
+                        response.close()
                         close(IOException("HTTP ${response.code}"))
                         return
                     }
