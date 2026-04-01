@@ -42,7 +42,8 @@ ARIA (Adaptive Reasoning Interface for Android) is an AI-native launcher built o
 
 ### CI Branching
 
-- CI (`.github/workflows/ci.yml`) triggers on pushes to `*-dev` branches (including `aria-dev`) and on all PRs.
+- CI (`.github/workflows/ci.yml`) triggers on PRs and manual dispatch only (not on push).
+- Single build: `assembleLawnWithQuickstepPlayDebug` (no matrix).
 - Required checks: `build-debug-apk`, `check-style` (spotlessCheck), `final-status`.
 - The labeler (`.github/labeler.yml`) marks PRs as `outdated` unless they target `16-dev` or `aria-dev`.
 - Feature branches should branch from `aria-dev` and PR back to `aria-dev`.

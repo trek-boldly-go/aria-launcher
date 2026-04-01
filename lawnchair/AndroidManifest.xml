@@ -209,6 +209,7 @@
             android:name="app.lawnchair.bugreport.UploaderService"
             android:enabled="true"
             android:exported="false"
+            android:foregroundServiceType="shortService"
             android:process=":bugReport" />
 
         <receiver
