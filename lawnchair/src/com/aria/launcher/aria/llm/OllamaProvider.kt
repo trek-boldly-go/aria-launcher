@@ -54,11 +54,18 @@ class OllamaProvider(
             if (!response.isSuccessful) {
                 return@withContext LlmResult.Error("HTTP ${response.code}: $responseBody")
             }
+            if (responseBody.trimStart().startsWith("<")) {
+                return@withContext LlmResult.Error(
+                    "Server returned HTML instead of JSON. If using Cloudflare Access, check your Service Token headers.",
+                )
+            }
             val parsed = json.parseToJsonElement(responseBody).jsonObject
             val content = parsed["message"]?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
             if (content != null) LlmResult.Text(content) else LlmResult.Error("No content in response")
         } catch (e: IOException) {
             LlmResult.Error("Network error: ${e.message}", e)
+        } catch (e: Exception) {
+            LlmResult.Error("Failed to parse response: ${e.message}", e)
         }
     }
 
@@ -74,20 +81,42 @@ class OllamaProvider(
         call.enqueue(object : Callback {
             override fun onResponse(call: Call, response: Response) {
                 try {
+                    if (!response.isSuccessful) {
+                        close(IOException("HTTP ${response.code}"))
+                        return
+                    }
                     val reader = response.body?.charStream()?.let { BufferedReader(it) }
                     if (reader == null) {
                         close(IOException("Empty response body"))
                         return
                     }
                     reader.use { r ->
-                        r.forEachLine { line ->
-                            if (line.isBlank()) return@forEachLine
+                        val firstLine = r.readLine()
+                        if (firstLine == null) {
+                            close()
+                            return
+                        }
+                        if (firstLine.trimStart().startsWith("<")) {
+                            close(
+                                IOException(
+                                    "Server returned HTML instead of JSON. " +
+                                        "If using Cloudflare Access, check your Service Token headers.",
+                                ),
+                            )
+                            return
+                        }
+                        val allLines = sequenceOf(firstLine) + r.lineSequence()
+                        for (line in allLines) {
+                            if (line.isBlank()) continue
                             try {
                                 val parsed = json.parseToJsonElement(line).jsonObject
                                 val content = parsed["message"]?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
                                 if (content != null) trySend(content)
                                 val done = parsed["done"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
-                                if (done == true) close()
+                                if (done == true) {
+                                    close()
+                                    return
+                                }
                             } catch (e: Exception) {
                                 Log.w(TAG, "Failed to parse NDJSON line", e)
                             }
@@ -122,6 +151,11 @@ class OllamaProvider(
             if (!response.isSuccessful) {
                 return@withContext LlmResult.Error("HTTP ${response.code}: $responseBody")
             }
+            if (responseBody.trimStart().startsWith("<")) {
+                return@withContext LlmResult.Error(
+                    "Server returned HTML instead of JSON. If using Cloudflare Access, check your Service Token headers.",
+                )
+            }
             val parsed = json.parseToJsonElement(responseBody).jsonObject
             val message = parsed["message"]?.jsonObject
                 ?: return@withContext LlmResult.Error("No message in response")
@@ -152,6 +186,8 @@ class OllamaProvider(
             }
         } catch (e: IOException) {
             LlmResult.Error("Network error: ${e.message}", e)
+        } catch (e: Exception) {
+            LlmResult.Error("Failed to parse response: ${e.message}", e)
         }
     }
 
@@ -238,6 +274,14 @@ class OllamaProvider(
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(
                         IOException("HTTP ${response.code}: $body"),
+                    )
+                }
+                if (body.trimStart().startsWith("<")) {
+                    return@withContext Result.failure(
+                        IOException(
+                            "Server returned HTML instead of JSON. " +
+                                "If using Cloudflare Access, check your Service Token headers.",
+                        ),
                     )
                 }
                 val jsonParser = Json { ignoreUnknownKeys = true }
