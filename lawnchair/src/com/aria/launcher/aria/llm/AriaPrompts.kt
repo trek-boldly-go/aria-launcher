@@ -262,6 +262,27 @@ object AriaPrompts {
         ),
     )
 
+    /** Tool that lets the LLM read notification message bodies on demand. */
+    val readNotificationsTool = ToolDefinition(
+        name = "read_notifications",
+        description = "Read the text content of active notifications. " +
+            "Use when notification titles suggest actionable content " +
+            "(locations, times, requests) that would benefit from reading the full message.",
+        inputSchema = mapOf(
+            "properties" to buildJsonObject {
+                putJsonObject("package_filter") {
+                    put("type", "string")
+                    put("description", "Optional package name to filter notifications by app")
+                }
+                putJsonObject("limit") {
+                    put("type", "integer")
+                    put("description", "Max notifications to return (default 10)")
+                }
+            },
+            "required" to kotlinx.serialization.json.JsonArray(emptyList()),
+        ),
+    )
+
     /**
      * Builds a dynamic tool list based on what the device can actually do.
      * Starts with [coreTools] and adds capability-backed tools.
@@ -270,6 +291,7 @@ object AriaPrompts {
     fun buildTools(
         capabilities: List<DeviceCapabilityCatalog.AppCapability>,
         skillNames: List<String> = emptyList(),
+        notificationContentEnabled: Boolean = false,
     ): List<ToolDefinition> {
         val capCategories = capabilities.map { it.category }.toSet()
         val dynamic = mutableListOf<ToolDefinition>()
@@ -424,6 +446,10 @@ object AriaPrompts {
             dynamic.add(buildActivateSkillTool(skillNames))
         }
 
+        if (notificationContentEnabled) {
+            dynamic.add(readNotificationsTool)
+        }
+
         return coreTools + dynamic
     }
 
@@ -431,10 +457,16 @@ object AriaPrompts {
      * Builds the minimal tool set for the editorial engine (heartbeat).
      * Only includes fetch_url and optionally activate_skill — not the full device tool set.
      */
-    fun buildEditorialTools(skillNames: List<String>): List<ToolDefinition> {
+    fun buildEditorialTools(
+        skillNames: List<String>,
+        notificationContentEnabled: Boolean = false,
+    ): List<ToolDefinition> {
         val tools = mutableListOf(coreTools.first { it.name == "fetch_url" })
         if (skillNames.isNotEmpty()) {
             tools.add(buildActivateSkillTool(skillNames))
+        }
+        if (notificationContentEnabled) {
+            tools.add(readNotificationsTool)
         }
         return tools
     }

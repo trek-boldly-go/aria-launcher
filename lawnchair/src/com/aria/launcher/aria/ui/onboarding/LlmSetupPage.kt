@@ -864,26 +864,33 @@ internal fun ClaudeSetupSubPage(
                 }
             }
         } else {
-            // OAuth / Pro path
-            Text(
-                text = "If you have a Claude Pro subscription (\$20/mo), you can share your session with ARIA via QR code.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Run npx aria-token-qr on your computer, then scan the code.",
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Button(
-                onClick = onQrScanRequested,
+            // OAuth / Pro path — blocked by Anthropic for third-party apps
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = MaterialTheme.shapes.medium,
                 modifier = Modifier.fillMaxWidth(),
-                shapes = ButtonDefaults.shapes(),
             ) {
-                Text("Scan QR Code")
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Not currently supported",
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Anthropic blocks Claude Pro and Max OAuth tokens from being used in third-party apps. Only the official Claude Code CLI and claude.ai can use subscription-based authentication.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Use the API Key tab instead. You can create a pay-per-use key at console.anthropic.com for as little as a few dollars per month.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 

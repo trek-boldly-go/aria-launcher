@@ -100,14 +100,27 @@ class LlmProviderManager @Inject constructor(
         authConfig: AuthConfig? = null,
     ) {
         context.llmPrefsStore.edit { prefs ->
+            val previousType = prefs[KEY_PROVIDER_TYPE]?.let {
+                runCatching { ProviderType.valueOf(it) }.getOrNull()
+            }
+
             // When switching to LITERT, save the current remote provider as fallback
             if (type == ProviderType.LITERT) {
-                prefs[KEY_PROVIDER_TYPE]?.let { current ->
-                    if (current != ProviderType.LITERT.name) {
-                        prefs[KEY_FALLBACK_PROVIDER] = current
+                previousType?.let { prev ->
+                    if (prev != ProviderType.LITERT) {
+                        prefs[KEY_FALLBACK_PROVIDER] = prev.name
                     }
                 }
             }
+
+            // Clear stale keys from the previous provider when switching types
+            if (previousType != null && previousType != type) {
+                prefs.remove(KEY_MODEL_ID)
+                prefs.remove(KEY_SERVER_URL)
+                prefs.remove(KEY_AUTH_CONFIG)
+                prefs.remove(KEY_REFRESH_TOKEN)
+            }
+
             prefs[KEY_PROVIDER_TYPE] = type.name
             apiKey?.let { prefs[KEY_API_KEY] = it }
             serverUrl?.let { prefs[KEY_SERVER_URL] = it }
@@ -265,6 +278,7 @@ class LlmProviderManager @Inject constructor(
                 json = json,
                 token = apiKey,
                 modelId = modelId ?: "claude-sonnet-4-20250514",
+                isOAuth = true,
                 refreshToken = refreshToken,
                 onTokenRefreshed = { newToken, newRefresh ->
                     Log.d(TAG, "OAuth token refreshed, persisting to DataStore")
@@ -355,7 +369,7 @@ class LlmProviderManager @Inject constructor(
             "404" in raw && "api/tags" in raw.lowercase() ->
                 "Endpoint not found. Verify the server URL points to an Ollama instance."
 
-            "429" in raw || "rate" in raw.lowercase() ->
+            "429" in raw || "rate_limit" in raw.lowercase() ->
                 "Rate limited \u2014 too many requests. Wait a minute and try again."
 
             "insufficient_quota" in raw || "billing" in raw.lowercase() ->

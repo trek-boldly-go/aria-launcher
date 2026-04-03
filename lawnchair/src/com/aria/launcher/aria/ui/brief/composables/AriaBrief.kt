@@ -2,13 +2,13 @@
 package com.aria.launcher.aria.ui.brief.composables
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.EaseInCubic
+import androidx.compose.animation.core.EaseOutCubic
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,9 +35,9 @@ import com.aria.launcher.aria.ui.brief.BriefItem
  * The Brief — the home screen's primary content area.
  *
  * Up to 5 BriefItem cards in a Column (not LazyColumn — avoids nested scroll crashes).
- * Each card enters with a staggered spring animation (60ms per-item delay).
- * The spring physics (StiffnessMediumLow) gives a natural, non-mechanical feel.
- * Exit is a quick fade+shrink — dismissal should feel decisive.
+ * Each card enters with a staggered fade+slide animation (80ms per-item delay).
+ * EaseOutCubic gives a smooth, natural deceleration on entry.
+ * Exit is a quick fade+slide-up — dismissal should feel decisive.
  *
  * Animation fires ONLY when items actually change (keys differ from previous render),
  * not on every unlock/recomposition. This is enforced by tracking previousKeys.
@@ -79,21 +79,34 @@ fun AriaBrief(
                     enter = if (isNew) {
                         fadeIn(
                             animationSpec = tween(
-                                durationMillis = 280,
-                                delayMillis = index * 60,
+                                durationMillis = 320,
+                                delayMillis = index * 80,
+                                easing = EaseOutCubic,
                             ),
-                        ) + expandVertically(
-                            animationSpec = spring(
-                                stiffness = Spring.StiffnessMediumLow,
-                                dampingRatio = Spring.DampingRatioLowBouncy,
+                        ) + slideInVertically(
+                            animationSpec = tween(
+                                durationMillis = 320,
+                                delayMillis = index * 80,
+                                easing = EaseOutCubic,
                             ),
+                            initialOffsetY = { fullHeight -> fullHeight / 4 },
                         )
                     } else {
                         // No animation for already-seen items (rapid unlock)
                         fadeIn(animationSpec = tween(0))
                     },
-                    exit = fadeOut(animationSpec = tween(180)) +
-                        shrinkVertically(animationSpec = tween(200)),
+                    exit = fadeOut(
+                        animationSpec = tween(
+                            durationMillis = 220,
+                            easing = EaseInCubic,
+                        ),
+                    ) + slideOutVertically(
+                        animationSpec = tween(
+                            durationMillis = 220,
+                            easing = EaseInCubic,
+                        ),
+                        targetOffsetY = { fullHeight -> -fullHeight / 6 },
+                    ),
                 ) {
                     if (item.isDismissible()) {
                         SwipeDismissWrapper(

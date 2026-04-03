@@ -20,6 +20,7 @@ class AriaNotificationListener : NotificationListenerService() {
                     .take(cachedNotifications.size - MAX_CACHED_NOTIFICATIONS)
                 oldest.forEach { cachedNotifications.remove(it.key) }
             }
+            syncToCache()
         }
         Log.d(TAG, "Notification posted: ${sbn.packageName} — ${sbn.notification.extras?.getCharSequence("android.title")}")
     }
@@ -27,6 +28,7 @@ class AriaNotificationListener : NotificationListenerService() {
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         synchronized(lock) {
             cachedNotifications.remove(sbn.key)
+            syncToCache()
         }
     }
 
@@ -48,12 +50,14 @@ class AriaNotificationListener : NotificationListenerService() {
             }
         }
         Log.d(TAG, "Loaded ${cachedNotifications.size} existing notifications")
+        syncToCache()
     }
 
     override fun onListenerDisconnected() {
         Log.d(TAG, "NotificationListener disconnected")
         synchronized(lock) {
             cachedNotifications.clear()
+            syncToCache()
         }
     }
 
@@ -85,6 +89,30 @@ class AriaNotificationListener : NotificationListenerService() {
         private const val MAX_CACHED_NOTIFICATIONS = 500
         private val lock = Any()
         private val cachedNotifications = HashMap<String, AriaNotification>()
+
+        /**
+         * Static reference to the Hilt-managed [ActiveNotificationCache].
+         * Set once at app startup via [BriefModule] so the system-service listener
+         * can push updates to the DI-managed cache.
+         */
+        var notificationCacheRef: ActiveNotificationCache? = null
+
+        /** Pushes the current notification set to [notificationCacheRef]. Must be called inside [lock]. */
+        private fun syncToCache() {
+            notificationCacheRef?.update(
+                cachedNotifications.values.map { it.toCachedNotification() },
+            )
+        }
+
+        private fun AriaNotification.toCachedNotification() = CachedNotification(
+            key = key,
+            packageName = packageName,
+            title = title,
+            text = text,
+            category = category,
+            postedAt = postedTime,
+            isMedia = category == "transport",
+        )
 
         fun getNotifications(): List<AriaNotification> {
             synchronized(lock) {

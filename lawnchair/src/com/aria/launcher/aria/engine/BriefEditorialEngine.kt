@@ -54,12 +54,27 @@ class BriefEditorialEngine @Inject constructor(
     @AriaLlmClient private val httpClient: OkHttpClient,
     @ApplicationContext private val appContext: Context,
 ) {
+    private var lastCallTimestamp = 0L
+    private var rateLimitBackoffUntil = 0L
+
     /**
      * Generates a curated Brief via LLM editorial.
      * Returns null if no provider is configured or if the LLM call fails.
+     * Enforces a minimum cooldown between LLM calls and backs off on rate limits.
      */
     suspend fun generateBrief(context: AriaContext): List<BriefItem>? {
         val provider = llmProviderManager.getProvider() ?: return null
+
+        val now = System.currentTimeMillis()
+        if (now < rateLimitBackoffUntil) {
+            Log.d(TAG, "Rate-limit backoff active, ${(rateLimitBackoffUntil - now) / 1000}s remaining")
+            return null
+        }
+        if (now - lastCallTimestamp < MIN_CALL_INTERVAL_MS) {
+            Log.d(TAG, "Cooldown active, skipping LLM call")
+            return null
+        }
+        lastCallTimestamp = now
 
         val weather = weatherProvider.getWeather()
         val capabilities = capabilityCatalog.getCapabilitySummaryForPrompt()
@@ -87,12 +102,14 @@ class BriefEditorialEngine @Inject constructor(
         )
         val systemPrompt = EditorialPrompts.resolveTemplate(template, variables)
 
-        // If skills are available, use tool-calling loop so the LLM can fetch_url and activate_skill
-        if (heartbeatSkills.isNotEmpty()) {
-            return generateBriefWithTools(provider, systemPrompt, heartbeatSkills)
+        val notifContentEnabled = ariaPreferences.getNotificationContentEnabled()
+
+        // Use tool-calling loop when skills or notification reading are available
+        if (heartbeatSkills.isNotEmpty() || notifContentEnabled) {
+            return generateBriefWithTools(provider, systemPrompt, heartbeatSkills, notifContentEnabled)
         }
 
-        // Fallback: no skills, simple completion
+        // Fallback: no skills and no notification content tool, simple completion
         val result = provider.complete(
             systemPrompt = systemPrompt,
             messages = listOf(ChatMessage(Role.USER, "Generate the Brief for this context.")),
@@ -107,6 +124,7 @@ class BriefEditorialEngine @Inject constructor(
 
             is LlmResult.Error -> {
                 Log.w(TAG, "LLM editorial failed: ${result.message}")
+                applyBackoffIfRateLimited(result.message)
                 null
             }
 
@@ -122,14 +140,16 @@ class BriefEditorialEngine @Inject constructor(
         provider: LlmProvider,
         systemPrompt: String,
         skills: List<AgentSkillEntry>,
+        notificationContentEnabled: Boolean = false,
     ): List<BriefItem>? {
         val toolExecutor = ToolExecutor(
             context = appContext,
             httpClient = httpClient,
             agentSkillManager = agentSkillManager,
+            appLabelResolver = appLabelResolver,
         )
         val skillNames = skills.map { it.name }
-        val tools = AriaPrompts.buildEditorialTools(skillNames)
+        val tools = AriaPrompts.buildEditorialTools(skillNames, notificationContentEnabled)
 
         var messages = listOf(ChatMessage(Role.USER, "Generate the Brief for this context."))
         var round = 0
@@ -169,6 +189,7 @@ class BriefEditorialEngine @Inject constructor(
 
                 is LlmResult.Error -> {
                     Log.w(TAG, "Heartbeat LLM failed: ${result.message}")
+                    applyBackoffIfRateLimited(result.message)
                     return null
                 }
             }
@@ -375,9 +396,18 @@ class BriefEditorialEngine @Inject constructor(
             }
     }
 
+    private fun applyBackoffIfRateLimited(message: String) {
+        if ("429" in message || "rate_limit" in message.lowercase()) {
+            rateLimitBackoffUntil = System.currentTimeMillis() + RATE_LIMIT_BACKOFF_MS
+            Log.w(TAG, "Rate limited — backing off for ${RATE_LIMIT_BACKOFF_MS / 1000}s")
+        }
+    }
+
     companion object {
         private const val TAG = "ARIA.EditorialEngine"
         private const val MAX_TOOL_ROUNDS = 3
+        private const val MIN_CALL_INTERVAL_MS = 60_000L
+        private const val RATE_LIMIT_BACKOFF_MS = 120_000L
 
         private val WEATHER_ICONS = setOf(
             "cloud", "rainy", "storm", "thunderstorm", "weather", "sunny",
