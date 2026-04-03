@@ -119,4 +119,13 @@
     </resolve>
 
 
+    <appwidget
+        launcher:className="com.android.alarmclock.AnalogAppWidgetProvider"
+        launcher:packageName="com.google.android.deskclock"
+        launcher:screen="0"
+        launcher:spanX="2"
+        launcher:spanY="3"
+        launcher:x="2"
+        launcher:y="1"/>
+
 </favorites>
