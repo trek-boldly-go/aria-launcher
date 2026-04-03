@@ -26,6 +26,7 @@ object QrTokenScanner {
         context: Context,
         llmProviderManager: LlmProviderManager,
         scope: CoroutineScope,
+        onSuccess: () -> Unit = {},
     ) {
         val options = GmsBarcodeScannerOptions.Builder()
             .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
@@ -62,6 +63,7 @@ object QrTokenScanner {
                             )
                         }
                         Toast.makeText(context, "Claude OAuth configured via QR", Toast.LENGTH_SHORT).show()
+                        onSuccess()
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to parse QR payload", e)
                         Toast.makeText(context, "Invalid QR format: ${e.message}", Toast.LENGTH_SHORT).show()

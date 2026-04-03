@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -127,6 +129,7 @@ class AriaPredictedPanel @JvmOverloads constructor(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AriaPanelContent(
     state: AriaHomeState,
@@ -136,41 +139,48 @@ private fun AriaPanelContent(
 ) {
     val predictedApps by state.predictedApps.collectAsState()
     val briefItems by state.briefItems.collectAsState()
+    val isRefreshing by state.isRefreshing.collectAsState()
     var showChat by remember { mutableStateOf(false) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .nestedScroll(rememberNestedScrollInteropConnection())
-            .padding(
-                start = (startPadding / 2).dp,
-                end = (endPadding / 2).dp,
-            )
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.Top,
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { state.manualRefresh() },
+        modifier = Modifier.fillMaxSize(),
     ) {
-        Spacer(modifier = Modifier.height(4.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .nestedScroll(rememberNestedScrollInteropConnection())
+                .padding(
+                    start = (startPadding / 2).dp,
+                    end = (endPadding / 2).dp,
+                )
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.Top,
+        ) {
+            Spacer(modifier = Modifier.height(4.dp))
 
-        ChatPill(onClick = { showChat = true })
+            ChatPill(onClick = { showChat = true })
 
-        if (briefItems.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
+            if (briefItems.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
 
-            AriaBrief(
-                items = briefItems,
-                onActionClick = { action -> state.executeAction(action) },
-                onItemDismiss = { item -> state.dismissItem(item) },
-            )
-        }
+                AriaBrief(
+                    items = briefItems,
+                    onActionClick = { action -> state.executeAction(action) },
+                    onItemDismiss = { item -> state.dismissItem(item) },
+                )
+            }
 
-        Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-        if (predictedApps.isNotEmpty()) {
-            PredictedAppsRow(
-                apps = predictedApps,
-                onAppClick = { packageName -> state.launchApp(packageName) },
-            )
-            Spacer(modifier = Modifier.height(8.dp))
+            if (predictedApps.isNotEmpty()) {
+                PredictedAppsRow(
+                    apps = predictedApps,
+                    onAppClick = { packageName -> state.launchApp(packageName) },
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
         }
     }
 

@@ -10,7 +10,10 @@ import android.net.Uri
 import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.provider.MediaStore
+import android.text.format.DateUtils
 import android.util.Log
+import com.aria.launcher.aria.data.AriaNotificationListener
+import com.aria.launcher.aria.engine.AppLabelResolver
 import com.aria.launcher.aria.engine.skills.AgentSkillManager
 import com.aria.launcher.aria.llm.ToolCall
 import kotlinx.coroutines.runBlocking
@@ -34,6 +37,8 @@ class ToolExecutor(
     private val context: Context,
     private val httpClient: OkHttpClient? = null,
     private val agentSkillManager: AgentSkillManager? = null,
+    private val appLabelResolver: AppLabelResolver? = null,
+    private val isNotificationContentEnabled: () -> Boolean = { false },
 ) {
 
     fun execute(toolCall: ToolCall): ToolResult {
@@ -53,6 +58,7 @@ class ToolExecutor(
                 "take_photo" -> executeTakePhoto(toolCall)
                 "share_text" -> executeShareText(toolCall)
                 "play_music" -> executePlayMusic(toolCall)
+                "read_notifications" -> executeReadNotifications(toolCall)
                 else -> ToolResult(toolCall.id, toolCall.name, "Unknown tool: ${toolCall.name}", false)
             }
         } catch (e: Exception) {
@@ -364,6 +370,45 @@ class ToolExecutor(
         return launchIntent(intent, toolCall, desc)
     }
 
+    private fun executeReadNotifications(toolCall: ToolCall): ToolResult {
+        if (!isNotificationContentEnabled()) {
+            return ToolResult(
+                toolCall.id,
+                toolCall.name,
+                "Notification content access is not enabled by the user.",
+                false,
+            )
+        }
+        val packageFilter = toolCall.arguments["package_filter"]?.jsonPrimitive?.contentOrNull
+        val limit = toolCall.arguments["limit"]?.jsonPrimitive?.intOrNull ?: MAX_NOTIFICATION_RESULTS
+
+        val notifications = AriaNotificationListener.getNotifications()
+            .let { list ->
+                if (packageFilter != null) list.filter { it.packageName == packageFilter } else list
+            }
+            .sortedByDescending { it.postedTime }
+            .take(limit.coerceAtMost(MAX_NOTIFICATION_RESULTS))
+
+        if (notifications.isEmpty()) {
+            return ToolResult(toolCall.id, toolCall.name, "No notifications found.")
+        }
+
+        val now = System.currentTimeMillis()
+        val lines = notifications.map { notif ->
+            val label = appLabelResolver?.resolve(notif.packageName) ?: notif.packageName
+            val title = notif.title ?: "(no title)"
+            val body = notif.text?.take(MAX_NOTIFICATION_BODY_CHARS) ?: "(no body)"
+            val ago = DateUtils.getRelativeTimeSpanString(
+                notif.postedTime,
+                now,
+                DateUtils.MINUTE_IN_MILLIS,
+            )
+            "$label — Title: $title | Body: $body | $ago"
+        }
+
+        return ToolResult(toolCall.id, toolCall.name, lines.joinToString("\n"))
+    }
+
     private fun launchIntent(intent: Intent, toolCall: ToolCall, successMessage: String): ToolResult {
         return try {
             context.startActivity(intent)
@@ -377,5 +422,7 @@ class ToolExecutor(
     companion object {
         private const val TAG = "ARIA.ToolExecutor"
         private const val MAX_FETCH_RESPONSE_CHARS = 4000
+        private const val MAX_NOTIFICATION_RESULTS = 20
+        private const val MAX_NOTIFICATION_BODY_CHARS = 500
     }
 }

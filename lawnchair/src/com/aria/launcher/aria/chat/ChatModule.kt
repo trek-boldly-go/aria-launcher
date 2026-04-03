@@ -6,6 +6,7 @@ import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.data.UserMemoryDao
 import com.aria.launcher.aria.engine.AppActivityCatalog
+import com.aria.launcher.aria.engine.AppLabelResolver
 import com.aria.launcher.aria.engine.DeviceCapabilityCatalog
 import com.aria.launcher.aria.engine.skills.AgentSkillManager
 import com.aria.launcher.aria.llm.AriaLlmClient
@@ -35,6 +36,7 @@ object ChatModule {
         appActivityCatalog: AppActivityCatalog,
         @AriaLlmClient httpClient: OkHttpClient,
         agentSkillManager: AgentSkillManager,
+        appLabelResolver: AppLabelResolver,
     ): ChatState = ChatState(
         context,
         llmProviderManager,
@@ -46,5 +48,6 @@ object ChatModule {
         appActivityCatalog,
         httpClient,
         agentSkillManager,
+        appLabelResolver,
     )
 }

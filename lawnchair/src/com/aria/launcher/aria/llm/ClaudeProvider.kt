@@ -8,6 +8,8 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -24,6 +26,7 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -38,14 +41,17 @@ class ClaudeProvider(
     private val json: Json,
     private val token: String,
     override val modelId: String = DEFAULT_MODEL,
+    private val isOAuth: Boolean = false,
     private val refreshToken: String? = null,
     private val onTokenRefreshed: ((newToken: String, newRefreshToken: String?) -> Unit)? = null,
 ) : LlmProvider {
 
     override val name: String = "Claude"
 
-    private val isOAuthToken: Boolean get() = token.startsWith("sk-ant-oat01-")
+    private val isOAuthToken: Boolean get() = isOAuth || token.startsWith("sk-ant-oat01-")
     private var currentToken: String = token
+    private var currentRefreshToken: String? = refreshToken
+    private val refreshMutex = Mutex()
 
     override suspend fun complete(
         systemPrompt: String,
@@ -53,19 +59,7 @@ class ClaudeProvider(
         maxTokens: Int,
     ): LlmResult = withContext(Dispatchers.IO) {
         val body = buildRequestBody(systemPrompt, messages, maxTokens)
-        val request = buildRequest(body)
-        try {
-            val response = client.newCall(request).await()
-            val responseBody = response.body?.string() ?: return@withContext LlmResult.Error("Empty response")
-            if (!response.isSuccessful) {
-                Log.e(TAG, "API error ${response.code}: $responseBody")
-                Log.e(TAG, "Token prefix: ${currentToken.take(15)}..., isOAuth=$isOAuthToken")
-                return@withContext LlmResult.Error("HTTP ${response.code}: $responseBody")
-            }
-            parseResponse(responseBody)
-        } catch (e: IOException) {
-            LlmResult.Error("Network error: ${e.message}", e)
-        }
+        executeWithRetry(body)
     }
 
     override fun streamComplete(
@@ -110,17 +104,7 @@ class ClaudeProvider(
         maxTokens: Int,
     ): LlmResult = withContext(Dispatchers.IO) {
         val body = buildRequestBody(systemPrompt, messages, maxTokens, tools = tools)
-        val request = buildRequest(body)
-        try {
-            val response = client.newCall(request).await()
-            val responseBody = response.body?.string() ?: return@withContext LlmResult.Error("Empty response")
-            if (!response.isSuccessful) {
-                return@withContext LlmResult.Error("HTTP ${response.code}: $responseBody")
-            }
-            parseResponse(responseBody)
-        } catch (e: IOException) {
-            LlmResult.Error("Network error: ${e.message}", e)
-        }
+        executeWithRetry(body)
     }
 
     private fun buildRequestBody(
@@ -183,7 +167,13 @@ class ClaudeProvider(
             .post(body.toRequestBody(JSON_MEDIA_TYPE))
             .header("anthropic-version", API_VERSION)
             .header("content-type", "application/json")
-            .header("x-api-key", currentToken)
+
+        if (isOAuthToken) {
+            builder.header("Authorization", "Bearer $currentToken")
+            builder.header("anthropic-beta", OAUTH_BETA_HEADER)
+        } else {
+            builder.header("x-api-key", currentToken)
+        }
 
         return builder.build()
     }
@@ -223,31 +213,70 @@ class ClaudeProvider(
         }
     }
 
-    private suspend fun refreshOAuthToken(): Boolean = withContext(Dispatchers.IO) {
-        if (refreshToken == null) return@withContext false
-        try {
-            val body = buildJsonObject {
-                put("grant_type", "refresh_token")
-                put("refresh_token", refreshToken)
+    private suspend fun refreshOAuthToken(): Boolean = refreshMutex.withLock {
+        withContext(Dispatchers.IO) {
+            val refresh = currentRefreshToken ?: return@withContext false
+            try {
+                val formBody = FormBody.Builder()
+                    .add("grant_type", "refresh_token")
+                    .add("refresh_token", refresh)
+                    .add("client_id", OAUTH_CLIENT_ID)
+                    .add("scope", OAUTH_SCOPES)
+                    .build()
+                val request = Request.Builder()
+                    .url(TOKEN_REFRESH_URL)
+                    .post(formBody)
+                    .build()
+                val response = client.newCall(request).await()
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Token refresh HTTP ${response.code}")
+                    return@withContext false
+                }
+                val responseBody = response.body?.string() ?: return@withContext false
+                val parsed = json.parseToJsonElement(responseBody).jsonObject
+                val newToken = parsed["access_token"]?.jsonPrimitive?.contentOrNull
+                    ?: return@withContext false
+                val newRefresh = parsed["refresh_token"]?.jsonPrimitive?.contentOrNull
+                currentToken = newToken
+                if (newRefresh != null) currentRefreshToken = newRefresh
+                onTokenRefreshed?.invoke(newToken, newRefresh ?: refresh)
+                Log.d(TAG, "OAuth token refreshed successfully")
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Token refresh failed", e)
+                false
             }
-            val request = Request.Builder()
-                .url(TOKEN_REFRESH_URL)
-                .post(json.encodeToString(JsonObject.serializer(), body).toRequestBody(JSON_MEDIA_TYPE))
-                .header("content-type", "application/json")
-                .build()
+        }
+    }
+
+    private suspend fun executeWithRetry(body: String): LlmResult {
+        val request = buildRequest(body)
+        return try {
             val response = client.newCall(request).await()
-            if (!response.isSuccessful) return@withContext false
-            val responseBody = response.body?.string() ?: return@withContext false
-            val parsed = json.parseToJsonElement(responseBody).jsonObject
-            val newToken = parsed["access_token"]?.jsonPrimitive?.contentOrNull ?: return@withContext false
-            val newRefresh = parsed["refresh_token"]?.jsonPrimitive?.contentOrNull
-            currentToken = newToken
-            onTokenRefreshed?.invoke(newToken, newRefresh)
-            Log.d(TAG, "OAuth token refreshed successfully")
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Token refresh failed", e)
-            false
+            val responseBody = response.body?.string()
+                ?: return LlmResult.Error("Empty response")
+            if (response.code == 401 && isOAuthToken) {
+                Log.d(TAG, "Got 401, attempting OAuth token refresh")
+                if (refreshOAuthToken()) {
+                    val retryRequest = buildRequest(body)
+                    val retryResponse = client.newCall(retryRequest).await()
+                    val retryBody = retryResponse.body?.string()
+                        ?: return LlmResult.Error("Empty response on retry")
+                    if (!retryResponse.isSuccessful) {
+                        Log.e(TAG, "Retry failed ${retryResponse.code}: $retryBody")
+                        return LlmResult.Error("HTTP ${retryResponse.code}: $retryBody")
+                    }
+                    return parseResponse(retryBody)
+                }
+                return LlmResult.Error("HTTP 401: Token expired and refresh failed")
+            }
+            if (!response.isSuccessful) {
+                Log.e(TAG, "API error ${response.code}: $responseBody")
+                return LlmResult.Error("HTTP ${response.code}: $responseBody")
+            }
+            parseResponse(responseBody)
+        } catch (e: IOException) {
+            LlmResult.Error("Network error: ${e.message}", e)
         }
     }
 
@@ -255,7 +284,10 @@ class ClaudeProvider(
         private const val TAG = "ARIA.Claude"
         private const val API_URL = "https://api.anthropic.com/v1/messages"
         private const val API_VERSION = "2023-06-01"
-        private const val TOKEN_REFRESH_URL = "https://console.anthropic.com/api/oauth/token"
+        private const val TOKEN_REFRESH_URL = "https://platform.claude.com/v1/oauth/token"
+        private const val OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+        private const val OAUTH_SCOPES = "user:inference user:profile"
+        private const val OAUTH_BETA_HEADER = "oauth-2025-04-20"
         private const val DEFAULT_MODEL = "claude-sonnet-4-20250514"
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
     }

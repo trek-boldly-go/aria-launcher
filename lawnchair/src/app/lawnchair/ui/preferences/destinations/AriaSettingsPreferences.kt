@@ -553,6 +553,29 @@ fun AriaSettingsPreferences(
                     },
                 )
             }
+            val notifContentEnabled by prefs.notificationContentEnabled
+                .collectAsState(initial = false)
+            Item {
+                ClickablePreference(
+                    label = "Allow AI to read message content",
+                    subtitle = if (!hasNotifListener) {
+                        "Enable notification listener first"
+                    } else if (notifContentEnabled) {
+                        "ARIA can read notification bodies when relevant"
+                    } else {
+                        "ARIA only sees notification titles"
+                    },
+                    onClick = {
+                        if (hasNotifListener) {
+                            scope.launch {
+                                withContext(Dispatchers.IO) {
+                                    prefs.setNotificationContentEnabled(!notifContentEnabled)
+                                }
+                            }
+                        }
+                    },
+                )
+            }
         }
 
         PreferenceGroup(heading = "Rules") {

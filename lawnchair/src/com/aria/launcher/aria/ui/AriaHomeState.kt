@@ -5,11 +5,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.util.Log
+import com.aria.launcher.aria.data.ActiveNotificationCache
 import com.aria.launcher.aria.data.AppChain
 import com.aria.launcher.aria.data.AppChainDao
 import com.aria.launcher.aria.data.AppPrediction
+import com.aria.launcher.aria.data.AriaNotificationListener
 import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.data.ContextSignalManager
+import com.aria.launcher.aria.data.SkillDao
 import com.aria.launcher.aria.data.SkillResult
 import com.aria.launcher.aria.data.UsageDataRepository
 import com.aria.launcher.aria.data.UsageStatsCollector
@@ -33,6 +36,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -40,7 +44,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -62,6 +68,7 @@ data class PredictedApp(
  * This is a @Singleton instead of a ViewModel because Launcher extends Activity
  * (not ComponentActivity), so ViewModelStore is not available.
  */
+@OptIn(FlowPreview::class)
 @Singleton
 class AriaHomeState @Inject constructor(
     @ApplicationContext private val appContext: Context,
@@ -76,6 +83,8 @@ class AriaHomeState @Inject constructor(
     private val appChainDao: AppChainDao,
     private val predictionBlender: PredictionBlender,
     private val weatherProvider: WeatherProvider,
+    private val notificationCache: ActiveNotificationCache,
+    private val skillDao: SkillDao,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val pm: PackageManager = appContext.packageManager
@@ -96,6 +105,10 @@ class AriaHomeState @Inject constructor(
 
     // Track dismissed item keys for the current session
     private val dismissedKeys = mutableSetOf<String>()
+
+    // Pull-to-refresh loading state
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val predictedApps: StateFlow<List<PredictedApp>> = _contextKey
@@ -210,6 +223,38 @@ class AriaHomeState @Inject constructor(
         _briefItems.update { current -> current.filter { it.stableKey() != item.stableKey() } }
     }
 
+    /** Manually refresh all cards — triggered by pull-to-refresh gesture. */
+    fun manualRefresh() {
+        scope.launch(Dispatchers.IO) {
+            _isRefreshing.value = true
+            try {
+                contextMonitor.refresh()
+                val key = currentContextKey()
+                skillOrchestrator.executeMatchingSkills(key.timeBucket.name)
+                val ctx = contextMonitor.contextChanges.value
+                if (ctx != null) refreshBrief(ctx)
+            } catch (e: Exception) {
+                Log.w(TAG, "Manual refresh failed", e)
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    /**
+     * Removes SkillResults for notification-based skills whose source notifications
+     * have been dismissed. Prevents stale cards from lingering until TTL expiry.
+     */
+    private suspend fun invalidateStaleNotificationResults() {
+        for (skillId in NOTIFICATION_SKILL_IDS) {
+            val skill = skillDao.getSkillById(skillId) ?: continue
+            val notifications = AriaNotificationListener.getNotificationsForPackage(skill.appPackage)
+            if (notifications.isEmpty()) {
+                skillDao.deleteResultsForSkill(skillId)
+            }
+        }
+    }
+
     /** Execute a BriefAction — handles intentUri launches and MCP tool calls (Session 9+). */
     fun executeAction(action: com.aria.launcher.aria.ui.brief.BriefAction) {
         Log.d(TAG, "executeAction: label=${action.label} intentUri=${action.intentUri}")
@@ -268,6 +313,9 @@ class AriaHomeState @Inject constructor(
     private var cachedWorkWifi: String? = null
 
     init {
+        // Bridge the Hilt-managed notification cache to the system-service listener
+        AriaNotificationListener.notificationCacheRef = notificationCache
+
         // Start the context monitor — debounces signals, emits on meaningful changes
         contextMonitor.start()
 
@@ -277,6 +325,18 @@ class AriaHomeState @Inject constructor(
                 .filterNotNull()
                 .distinctUntilChanged { old, new -> old.bucketHash() == new.bucketHash() }
                 .collectLatest { context -> refreshBrief(context) }
+        }
+
+        // Wire notification changes → Brief refresh (with debounce to handle bursts)
+        scope.launch(Dispatchers.IO) {
+            notificationCache.changeSignal
+                .drop(1) // skip initial value
+                .debounce(2000)
+                .collectLatest {
+                    invalidateStaleNotificationResults()
+                    val ctx = contextMonitor.contextChanges.value ?: return@collectLatest
+                    refreshBrief(ctx)
+                }
         }
 
         // Ensure Brief populates on first launch even if context monitor
@@ -452,6 +512,13 @@ class AriaHomeState @Inject constructor(
         )
         private const val BOOST_SCORE_DELTA = 1000f // rule-boosted apps float to the top
         private const val CHAIN_TRIGGER_WINDOW_MS = 5 * 60 * 1000L // 5 min: app counts as active trigger
+
+        /** Skill IDs whose results are derived from active notifications. */
+        private val NOTIFICATION_SKILL_IDS = setOf(
+            "gmail.inbox_summary",
+            "messages.unread",
+            "spotify.now_playing",
+        )
 
         /** Apps that run in the background but aren't user-facing. */
         private val BACKGROUND_BLOCKLIST = setOf(

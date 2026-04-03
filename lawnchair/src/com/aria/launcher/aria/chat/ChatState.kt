@@ -8,6 +8,7 @@ import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.data.UserMemory
 import com.aria.launcher.aria.data.UserMemoryDao
 import com.aria.launcher.aria.engine.AppActivityCatalog
+import com.aria.launcher.aria.engine.AppLabelResolver
 import com.aria.launcher.aria.engine.ContextKey
 import com.aria.launcher.aria.engine.DeviceCapabilityCatalog
 import com.aria.launcher.aria.engine.skills.AgentSkillManager
@@ -43,6 +44,7 @@ class ChatState(
     private val appActivityCatalog: AppActivityCatalog,
     private val httpClient: OkHttpClient,
     private val agentSkillManager: AgentSkillManager,
+    private val appLabelResolver: AppLabelResolver,
 ) {
     private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
     val messages: StateFlow<List<UiMessage>> = _messages.asStateFlow()
@@ -56,7 +58,15 @@ class ChatState(
     /** Pending confirmation action waiting for user to say "Yes" or "No". */
     private var pendingConfirmation: ConfirmationAction? = null
 
-    private val toolExecutor = ToolExecutor(context, httpClient, agentSkillManager)
+    private val toolExecutor = ToolExecutor(
+        context = context,
+        httpClient = httpClient,
+        agentSkillManager = agentSkillManager,
+        appLabelResolver = appLabelResolver,
+        isNotificationContentEnabled = {
+            kotlinx.coroutines.runBlocking { ariaPreferences.notificationContentEnabled.first() }
+        },
+    )
 
     /**
      * Called when the chat sheet is opened. Checks if the conversation has been idle
@@ -180,7 +190,8 @@ class ChatState(
                 skillCatalog = skillCatalogSummary,
             )
 
-            val tools = AriaPrompts.buildTools(capabilities, skillNames)
+            val notifContentEnabled = ariaPreferences.getNotificationContentEnabled()
+            val tools = AriaPrompts.buildTools(capabilities, skillNames, notifContentEnabled)
 
             val chatMessages = _messages.value.map { msg ->
                 ChatMessage(role = msg.role, content = msg.content)
@@ -414,6 +425,6 @@ class ChatState(
         private const val MAX_TOOL_ROUNDS = 5
 
         /** Tools whose results are purely internal LLM context — never shown to the user. */
-        private val INTERNAL_TOOLS = setOf("fetch_url", "activate_skill")
+        private val INTERNAL_TOOLS = setOf("fetch_url", "activate_skill", "read_notifications")
     }
 }

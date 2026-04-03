@@ -38,6 +38,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,6 +53,7 @@ import com.aria.launcher.aria.ui.onboarding.ClaudeSetupSubPage
 import com.aria.launcher.aria.ui.onboarding.GeminiSetupSubPage
 import com.aria.launcher.aria.ui.onboarding.OllamaSetupSubPage
 import com.aria.launcher.aria.ui.onboarding.OpenAiSetupSubPage
+import com.aria.launcher.aria.ui.onboarding.QrTokenScanner
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -83,6 +85,7 @@ fun AriaLlmProviderSetupPreferences(
     }
     val llmProviderManager = entryPoint.llmProviderManager()
     val activeType by llmProviderManager.activeProviderType.collectAsState(initial = null)
+    val scope = rememberCoroutineScope()
 
     var currentScreen by remember { mutableStateOf(SetupScreen.CHOOSER) }
 
@@ -139,7 +142,14 @@ fun AriaLlmProviderSetupPreferences(
 
                 SetupScreen.CLAUDE -> ClaudeSetupSubPage(
                     llmProviderManager = llmProviderManager,
-                    onQrScanRequested = {},
+                    onQrScanRequested = {
+                        QrTokenScanner.scan(
+                            context = context,
+                            llmProviderManager = llmProviderManager,
+                            scope = scope,
+                            onSuccess = { navController.popBackStack() },
+                        )
+                    },
                     onBack = { currentScreen = SetupScreen.CHOOSER },
                     onSuccess = { navController.popBackStack() },
                 )

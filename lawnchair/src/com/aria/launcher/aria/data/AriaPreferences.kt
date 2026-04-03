@@ -51,6 +51,10 @@ class AriaPreferences @Inject constructor(
     val memoryEnabled: Flow<Boolean> = context.ariaPrefsStore.data
         .map { it[KEY_MEMORY_ENABLED] ?: true }
 
+    /** Whether the LLM is allowed to read notification message bodies via tool call. */
+    val notificationContentEnabled: Flow<Boolean> = context.ariaPrefsStore.data
+        .map { it[KEY_NOTIFICATION_CONTENT_ENABLED] ?: false }
+
     /** User-editable editorial prompt template with ${variable} placeholders. */
     val editorialPromptTemplate: Flow<String> = context.ariaPrefsStore.data
         .map { it[KEY_EDITORIAL_PROMPT] ?: DEFAULT_EDITORIAL_PROMPT }
@@ -99,6 +103,12 @@ class AriaPreferences @Inject constructor(
         context.ariaPrefsStore.edit { it[KEY_MEMORY_ENABLED] = enabled }
     }
 
+    suspend fun getNotificationContentEnabled(): Boolean = context.ariaPrefsStore.data.first()[KEY_NOTIFICATION_CONTENT_ENABLED] ?: false
+
+    suspend fun setNotificationContentEnabled(enabled: Boolean) {
+        context.ariaPrefsStore.edit { it[KEY_NOTIFICATION_CONTENT_ENABLED] = enabled }
+    }
+
     suspend fun getEditorialPromptTemplate(): String = context.ariaPrefsStore.data.first()[KEY_EDITORIAL_PROMPT] ?: DEFAULT_EDITORIAL_PROMPT
 
     suspend fun setEditorialPromptTemplate(template: String) {
@@ -141,6 +151,7 @@ class AriaPreferences @Inject constructor(
         private val KEY_DEFAULT_LAT = stringPreferencesKey("default_latitude")
         private val KEY_DEFAULT_LNG = stringPreferencesKey("default_longitude")
         private val KEY_DEFAULT_LOCATION_TS = longPreferencesKey("default_location_ts")
+        private val KEY_NOTIFICATION_CONTENT_ENABLED = booleanPreferencesKey("notification_content_enabled")
         private val KEY_BOOTSTRAP_DONE = booleanPreferencesKey("bootstrap_done")
         private val KEY_EDITORIAL_PROMPT = stringPreferencesKey("editorial_prompt_template")
 
