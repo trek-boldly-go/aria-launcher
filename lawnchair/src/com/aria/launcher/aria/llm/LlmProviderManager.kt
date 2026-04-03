@@ -113,20 +113,40 @@ class LlmProviderManager @Inject constructor(
                 }
             }
 
-            // Clear stale keys from the previous provider when switching types
+            // Migrate: if old flat keys exist for the previous provider, store them
+            // under that provider's namespace so they aren't lost.
             if (previousType != null && previousType != type) {
-                prefs.remove(KEY_MODEL_ID)
-                prefs.remove(KEY_SERVER_URL)
-                prefs.remove(KEY_AUTH_CONFIG)
-                prefs.remove(KEY_REFRESH_TOKEN)
+                migrateFlat(prefs, previousType)
             }
 
             prefs[KEY_PROVIDER_TYPE] = type.name
-            apiKey?.let { prefs[KEY_API_KEY] = it }
-            serverUrl?.let { prefs[KEY_SERVER_URL] = it }
-            modelId?.let { prefs[KEY_MODEL_ID] = it }
-            refreshToken?.let { prefs[KEY_REFRESH_TOKEN] = it }
-            authConfig?.let { prefs[KEY_AUTH_CONFIG] = it.encode() }
+            // Write to both the namespaced key (permanent) and the flat key (for
+            // createProvider which reads flat keys at runtime).
+            apiKey?.let {
+                prefs[KEY_API_KEY] = it
+                prefs[providerKey(type, "api_key")] = it
+            }
+            serverUrl?.let {
+                prefs[KEY_SERVER_URL] = it
+                prefs[providerKey(type, "server_url")] = it
+            }
+            modelId?.let {
+                prefs[KEY_MODEL_ID] = it
+                prefs[providerKey(type, "model_id")] = it
+            }
+            refreshToken?.let {
+                prefs[KEY_REFRESH_TOKEN] = it
+                prefs[providerKey(type, "refresh_token")] = it
+            }
+            authConfig?.let {
+                val encoded = it.encode()
+                prefs[KEY_AUTH_CONFIG] = encoded
+                prefs[providerKey(type, "auth_config")] = encoded
+            }
+
+            // Restore flat keys from the new provider's saved namespace so
+            // createProvider() sees the correct values immediately.
+            restoreFlat(prefs, type)
         }
         cachedProvider = null
     }
@@ -144,15 +164,36 @@ class LlmProviderManager @Inject constructor(
         cachedProvider = null
     }
 
-    suspend fun getSavedConfig(): SavedProviderConfig {
+    /**
+     * Returns the saved configuration for a provider. When [forType] is null the
+     * active provider's config is returned; otherwise the stored config for the
+     * requested type is loaded from its namespace.
+     */
+    suspend fun getSavedConfig(forType: ProviderType? = null): SavedProviderConfig {
         val prefs = context.llmPrefsStore.data.first()
-        return SavedProviderConfig(
-            type = prefs[KEY_PROVIDER_TYPE]?.let { runCatching { ProviderType.valueOf(it) }.getOrNull() },
-            apiKey = prefs[KEY_API_KEY] ?: "",
-            serverUrl = prefs[KEY_SERVER_URL] ?: "",
-            modelId = prefs[KEY_MODEL_ID] ?: "",
-            authConfig = AuthConfig.decode(prefs[KEY_AUTH_CONFIG]),
-        )
+        val activeType = prefs[KEY_PROVIDER_TYPE]?.let {
+            runCatching { ProviderType.valueOf(it) }.getOrNull()
+        }
+        val type = forType ?: activeType
+        return if (type != null) {
+            SavedProviderConfig(
+                type = type,
+                apiKey = prefs[providerKey(type, "api_key")] ?: prefs[KEY_API_KEY] ?: "",
+                serverUrl = prefs[providerKey(type, "server_url")] ?: prefs[KEY_SERVER_URL] ?: "",
+                modelId = prefs[providerKey(type, "model_id")] ?: prefs[KEY_MODEL_ID] ?: "",
+                authConfig = AuthConfig.decode(
+                    prefs[providerKey(type, "auth_config")] ?: prefs[KEY_AUTH_CONFIG],
+                ),
+            )
+        } else {
+            SavedProviderConfig(
+                type = null,
+                apiKey = prefs[KEY_API_KEY] ?: "",
+                serverUrl = prefs[KEY_SERVER_URL] ?: "",
+                modelId = prefs[KEY_MODEL_ID] ?: "",
+                authConfig = AuthConfig.decode(prefs[KEY_AUTH_CONFIG]),
+            )
+        }
     }
 
     /** The previously active remote provider, saved when switching to LITERT. */
@@ -169,6 +210,7 @@ class LlmProviderManager @Inject constructor(
         } ?: return false
         context.llmPrefsStore.edit { p ->
             p[KEY_PROVIDER_TYPE] = fallbackType.name
+            restoreFlat(p, fallbackType)
         }
         cachedProvider = null
         return true
@@ -189,13 +231,32 @@ class LlmProviderManager @Inject constructor(
             )
         }
 
-    /** The saved auth config, for pre-filling Ollama setup UI. */
+    /** The saved auth config for the active provider, for pre-filling setup UI. */
     val savedAuthConfig: Flow<AuthConfig> = context.llmPrefsStore.data
-        .map { prefs -> AuthConfig.decode(prefs[KEY_AUTH_CONFIG]) }
+        .map { prefs ->
+            val type = prefs[KEY_PROVIDER_TYPE]?.let {
+                runCatching { ProviderType.valueOf(it) }.getOrNull()
+            }
+            val raw = if (type != null) {
+                prefs[providerKey(type, "auth_config")] ?: prefs[KEY_AUTH_CONFIG]
+            } else {
+                prefs[KEY_AUTH_CONFIG]
+            }
+            AuthConfig.decode(raw)
+        }
 
-    /** The saved server URL, for pre-filling Ollama setup UI. */
+    /** The saved server URL for the active provider, for pre-filling setup UI. */
     val savedServerUrl: Flow<String?> = context.llmPrefsStore.data
-        .map { prefs -> prefs[KEY_SERVER_URL] }
+        .map { prefs ->
+            val type = prefs[KEY_PROVIDER_TYPE]?.let {
+                runCatching { ProviderType.valueOf(it) }.getOrNull()
+            }
+            if (type != null) {
+                prefs[providerKey(type, "server_url")] ?: prefs[KEY_SERVER_URL]
+            } else {
+                prefs[KEY_SERVER_URL]
+            }
+        }
 
     /** Fetch available models from an Ollama server. */
     suspend fun fetchOllamaModels(
@@ -344,6 +405,8 @@ class LlmProviderManager @Inject constructor(
 
     companion object {
         private const val TAG = "ARIA.LlmProviderManager"
+
+        // --- Flat (legacy) keys — still used at runtime by createProvider() ---
         private val KEY_PROVIDER_TYPE = stringPreferencesKey("provider_type")
         private val KEY_API_KEY = stringPreferencesKey("api_key")
         private val KEY_SERVER_URL = stringPreferencesKey("server_url")
@@ -353,6 +416,62 @@ class LlmProviderManager @Inject constructor(
         private val KEY_AUTH_CONFIG = stringPreferencesKey("auth_config")
         private val KEY_HF_TOKEN = stringPreferencesKey("hf_token")
         private val KEY_ON_DEVICE_MODEL = stringPreferencesKey("on_device_model")
+
+        /** Per-provider namespaced key, e.g. "OLLAMA.server_url". */
+        private fun providerKey(type: ProviderType, field: String) = stringPreferencesKey("${type.name}.$field")
+
+        /** Flat key lookup by field name. */
+        private val FLAT_KEYS = mapOf(
+            "api_key" to KEY_API_KEY,
+            "server_url" to KEY_SERVER_URL,
+            "model_id" to KEY_MODEL_ID,
+            "refresh_token" to KEY_REFRESH_TOKEN,
+            "auth_config" to KEY_AUTH_CONFIG,
+        )
+
+        private val CONFIG_FIELDS = listOf(
+            "api_key",
+            "server_url",
+            "model_id",
+            "refresh_token",
+            "auth_config",
+        )
+
+        /**
+         * Copies current flat key values into the given provider's namespace.
+         * Called when switching away from a provider so its config is preserved.
+         */
+        private fun migrateFlat(
+            prefs: androidx.datastore.preferences.core.MutablePreferences,
+            type: ProviderType,
+        ) {
+            for (field in CONFIG_FIELDS) {
+                val flatKey = FLAT_KEYS[field] ?: continue
+                val value = prefs[flatKey]
+                if (value != null) {
+                    prefs[providerKey(type, field)] = value
+                }
+            }
+        }
+
+        /**
+         * Restores flat keys from a provider's namespace so [createProvider] sees
+         * the correct values. Clears flat keys that don't exist in the namespace.
+         */
+        private fun restoreFlat(
+            prefs: androidx.datastore.preferences.core.MutablePreferences,
+            type: ProviderType,
+        ) {
+            for (field in CONFIG_FIELDS) {
+                val flatKey = FLAT_KEYS[field] ?: continue
+                val namespaced = prefs[providerKey(type, field)]
+                if (namespaced != null) {
+                    prefs[flatKey] = namespaced
+                } else {
+                    prefs.remove(flatKey)
+                }
+            }
+        }
 
         /** Convert raw error strings into plain English for display to users. */
         fun humanizeError(raw: String, providerType: ProviderType? = null): String = when {

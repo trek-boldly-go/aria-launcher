@@ -58,7 +58,15 @@ class ChatState(
     /** Pending confirmation action waiting for user to say "Yes" or "No". */
     private var pendingConfirmation: ConfirmationAction? = null
 
-    private val toolExecutor = ToolExecutor(context, httpClient, agentSkillManager, appLabelResolver)
+    private val toolExecutor = ToolExecutor(
+        context = context,
+        httpClient = httpClient,
+        agentSkillManager = agentSkillManager,
+        appLabelResolver = appLabelResolver,
+        isNotificationContentEnabled = {
+            kotlinx.coroutines.runBlocking { ariaPreferences.notificationContentEnabled.first() }
+        },
+    )
 
     /**
      * Called when the chat sheet is opened. Checks if the conversation has been idle

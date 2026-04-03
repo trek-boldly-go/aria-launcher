@@ -147,6 +147,7 @@ class BriefEditorialEngine @Inject constructor(
             httpClient = httpClient,
             agentSkillManager = agentSkillManager,
             appLabelResolver = appLabelResolver,
+            isNotificationContentEnabled = { notificationContentEnabled },
         )
         val skillNames = skills.map { it.name }
         val tools = AriaPrompts.buildEditorialTools(skillNames, notificationContentEnabled)

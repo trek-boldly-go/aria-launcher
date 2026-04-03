@@ -38,6 +38,7 @@ class ToolExecutor(
     private val httpClient: OkHttpClient? = null,
     private val agentSkillManager: AgentSkillManager? = null,
     private val appLabelResolver: AppLabelResolver? = null,
+    private val isNotificationContentEnabled: () -> Boolean = { false },
 ) {
 
     fun execute(toolCall: ToolCall): ToolResult {
@@ -370,6 +371,14 @@ class ToolExecutor(
     }
 
     private fun executeReadNotifications(toolCall: ToolCall): ToolResult {
+        if (!isNotificationContentEnabled()) {
+            return ToolResult(
+                toolCall.id,
+                toolCall.name,
+                "Notification content access is not enabled by the user.",
+                false,
+            )
+        }
         val packageFilter = toolCall.arguments["package_filter"]?.jsonPrimitive?.contentOrNull
         val limit = toolCall.arguments["limit"]?.jsonPrimitive?.intOrNull ?: MAX_NOTIFICATION_RESULTS
 
