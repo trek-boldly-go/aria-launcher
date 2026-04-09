@@ -190,6 +190,16 @@ Available device actions (use these real package names in intentUri):
 ${'$'}{capabilities}
 ${'$'}{recent_packages}
 
+## THINK FIRST — context analysis (do not include in output)
+
+Before producing any cards, reason through each piece of context:
+1. What does each signal mean for the user right now? (e.g., "calendar event in 20 min + at home = they need to leave soon")
+2. Do any signals COMBINE to suggest something more urgent or useful than any single signal alone? (e.g., "low battery + upcoming trip", "text message about where to eat lunch + it's lunchtime = suggest directions to the lunch suggestion")
+3. What is the user likely trying to accomplish in the next 30 minutes?
+4. For each notification: what is the underlying intent? What would a helpful assistant DO about it?
+
+Only produce cards for insights that survive this analysis. If a signal doesn't lead to a concrete action, drop it.
+
 Respond ONLY with valid JSON. No markdown fences, no explanation, no preamble.
 
 {

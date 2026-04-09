@@ -11,14 +11,9 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -26,7 +21,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.aria.launcher.aria.ui.brief.BriefAction
 import com.aria.launcher.aria.ui.brief.BriefItem
@@ -198,38 +192,15 @@ private fun BriefItemCard(
     }
 }
 
-/** Stub for MCP live data cards — wired up fully in Session 8+ MCP phase. */
 @Composable
 private fun LiveDataBriefCard(
     item: BriefItem.LiveDataCard,
     onActionClick: (BriefAction) -> Unit,
 ) {
-    BriefCard {
-        Text(
-            text = item.headline,
-            style = MaterialTheme.typography.titleSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (item.subtext != null) {
-            Text(
-                text = item.subtext,
-                style = MaterialTheme.typography.bodySmall,
-                color = BriefCardDefaults.subtitleColor,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (item.action != null) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Spacer(modifier = Modifier.weight(1f))
-                TextButton(onClick = { onActionClick(item.action) }) {
-                    Text(
-                        text = item.action.label,
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                }
-            }
-        }
-    }
+    UnifiedBriefCard(
+        headline = item.headline,
+        subtext = item.subtext,
+        primaryAction = item.action,
+        onActionClick = onActionClick,
+    )
 }
