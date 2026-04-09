@@ -20,6 +20,7 @@ plugins {
     alias(libs.plugins.dagger.hilt.android.plugin)
 }
 
+
 allprojects {
     plugins.withType(AndroidBasePlugin).configureEach {
         android {
@@ -199,6 +200,7 @@ android {
         "META-INF/licenses/**",
         "META-INF/AL2.0",
         "META-INF/LGPL2.1",
+        "META-INF/DEPENDENCIES",
     ]
 
     // Load all proguard configs from AOSP
@@ -502,9 +504,21 @@ dependencies {
     ksp libs.androidx.hilt.compiler
     implementation libs.play.services.location
     implementation libs.okhttp.sse
+    // jackson-module-kotlin must stay (SDK's Builder constructor calls jacksonObjectMapper()
+    // eagerly), but kotlin-reflect must be excluded — it crashes on Android because DEX
+    // strips Kotlin builtins metadata. We override the mapper via .jsonMapper() with a bare
+    // JsonMapper so kotlin-reflect is never invoked at serialization time.
+    implementation(libs.anthropic.java) {
+        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-reflect'
+        // Apache HttpClient5 is only needed for Bedrock/Vertex backends we don't use.
+        exclude group: 'org.apache.httpcomponents.client5'
+        exclude group: 'org.apache.httpcomponents.core5'
+    }
+    implementation(libs.litertlm.android) { // LiteRT-LM: on-device LLM inference (Session 15)
+        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-reflect'
+    }
     implementation libs.play.services.code.scanner
     implementation libs.litert // LiteRT (16KB-aligned TFLite replacement) — seam for Session 14 on-device model
-    implementation libs.litertlm.android // LiteRT-LM: on-device LLM inference (Session 15)
 
     implementation libs.google.guava
 
