@@ -621,17 +621,20 @@ class ToolExecutor(
                 toolCall.name,
                 "Remembered [$category]: $fact",
             )
+
             InsertResult.Duplicate -> ToolResult(
                 toolCall.id,
                 toolCall.name,
                 "Already known: $fact",
             )
+
             InsertResult.Invalid -> ToolResult(
                 toolCall.id,
                 toolCall.name,
                 "Fact rejected: must be 5–300 characters.",
                 false,
             )
+
             else -> ToolResult(
                 toolCall.id,
                 toolCall.name,

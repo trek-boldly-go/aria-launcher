@@ -216,8 +216,7 @@ class MemoryRepository @Inject constructor(
      * Convenience wrapper used by the `remember` chat tool. Forces source = "agent"
      * and skips extraction gating — the agent is intentionally storing this fact.
      */
-    suspend fun rememberFromAgent(fact: String, category: String): InsertResult =
-        insertIfNovel(fact, category, source = "agent")
+    suspend fun rememberFromAgent(fact: String, category: String): InsertResult = insertIfNovel(fact, category, source = "agent")
 
     private suspend fun parseAndStore(response: String): Int {
         var inserted = 0
@@ -237,6 +236,7 @@ class MemoryRepository @Inject constructor(
                     inserted++
                     Log.d(TAG, "Stored memory [$category]: $fact (id=${r.id})")
                 }
+
                 else -> { /* duplicate or invalid — silent */ }
             }
         }
@@ -302,4 +302,3 @@ class MemoryRepository @Inject constructor(
         )
     }
 }
-

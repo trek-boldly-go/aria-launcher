@@ -134,6 +134,7 @@ class ChatState(
                             val response = ariaChatHandler.confirmSaveRule(pendingAction.rule)
                             _messages.value += UiMessage(Role.ASSISTANT, response.text)
                         }
+
                         is ConfirmationAction.ForgetMemory -> {
                             memoryRepo.delete(pendingAction.memoryId)
                             _messages.value += UiMessage(

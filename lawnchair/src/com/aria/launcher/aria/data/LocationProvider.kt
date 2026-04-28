@@ -69,8 +69,7 @@ class LocationProvider @Inject constructor(
     }
 
     /** Returns just (lat, lng) for callers that don't need accuracy/label/cache semantics. */
-    suspend fun getLatLng(): Pair<Double, Double>? =
-        getCurrentLocation(includeLabel = false)?.let { it.lat to it.lng }
+    suspend fun getLatLng(): Pair<Double, Double>? = getCurrentLocation(includeLabel = false)?.let { it.lat to it.lng }
 
     private fun fetchGps(): Triple<Double, Double, Float>? {
         if (!hasLocationPermission()) return null
@@ -114,11 +113,13 @@ class LocationProvider @Inject constructor(
                     val deferred = CompletableDeferred<String?>()
                     val geocoder = Geocoder(context)
                     geocoder.getFromLocation(lat, lng, 1) { results ->
-                        deferred.complete(results.firstOrNull()?.let { addr ->
-                            addr.locality
-                                ?: addr.subAdminArea
-                                ?: addr.adminArea
-                        })
+                        deferred.complete(
+                            results.firstOrNull()?.let { addr ->
+                                addr.locality
+                                    ?: addr.subAdminArea
+                                    ?: addr.adminArea
+                            },
+                        )
                     }
                     deferred.await()
                 } else {
@@ -139,11 +140,10 @@ class LocationProvider @Inject constructor(
         }
     }
 
-    private fun hasLocationPermission(): Boolean =
-        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
-            PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
-            PackageManager.PERMISSION_GRANTED
+    private fun hasLocationPermission(): Boolean = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED
 
     companion object {
         private const val TAG = "ARIA.Location"

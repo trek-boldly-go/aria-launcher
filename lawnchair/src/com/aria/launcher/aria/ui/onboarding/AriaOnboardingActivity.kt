@@ -327,7 +327,7 @@ private fun OnboardingWizard(
                     calendarGranted = calendarGranted,
                     onGrantUsageStats = onGrantUsageStats,
                     onGrantRuntimePermissions = onGrantRuntimePermissions,
-                    ariaPreferences = entryPoint.ariaPreferences(),
+                    ariaPreferences = ariaPreferences,
                 )
 
                 3 -> NotificationAccessPage(

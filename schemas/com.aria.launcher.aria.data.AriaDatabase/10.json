@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 10,
-    "identityHash": "b36f69486ad74e7e6ff748a5d0dc12fa",
+    "identityHash": "6e5f0c6cc0dfe406363ce531cfe7e0ff",
     "entities": [
       {
         "tableName": "AppUsageEvent",
@@ -270,6 +270,36 @@
         }
       },
       {
+        "tableName": "user_memory_fts",
+        "createSql": "CREATE VIRTUAL TABLE IF NOT EXISTS `${TABLE_NAME}` USING FTS4(`fact` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "fact",
+            "columnName": "fact",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "rowid"
+          ]
+        },
+        "ftsVersion": "FTS4",
+        "ftsOptions": {
+          "tokenizer": "simple",
+          "tokenizerArgs": [],
+          "contentTable": "",
+          "languageIdColumnName": "",
+          "matchInfo": "FTS4",
+          "notIndexedColumns": [],
+          "prefixSizes": [],
+          "preferredOrder": "ASC"
+        },
+        "contentSyncTriggers": []
+      },
+      {
         "tableName": "ssid_classifications",
         "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`ssidHash` TEXT NOT NULL, `rawSsid` TEXT NOT NULL, `venueCategory` TEXT NOT NULL, `visitContext` TEXT NOT NULL, `visitCount` INTEGER NOT NULL, `averageVisitDurationMinutes` INTEGER NOT NULL, `firstSeen` INTEGER NOT NULL, `lastSeen` INTEGER NOT NULL, `userConfirmed` INTEGER NOT NULL, PRIMARY KEY(`ssidHash`))",
         "fields": [
@@ -476,7 +506,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b36f69486ad74e7e6ff748a5d0dc12fa')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '6e5f0c6cc0dfe406363ce531cfe7e0ff')"
     ]
   }
 }

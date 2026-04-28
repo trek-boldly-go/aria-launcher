@@ -118,9 +118,8 @@ class ContactsRepository @Inject constructor(
         return emails.distinct()
     }
 
-    private fun hasPermission(): Boolean =
-        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) ==
-            PackageManager.PERMISSION_GRANTED
+    private fun hasPermission(): Boolean = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) ==
+        PackageManager.PERMISSION_GRANTED
 
     companion object {
         private const val TAG = "ARIA.Contacts"

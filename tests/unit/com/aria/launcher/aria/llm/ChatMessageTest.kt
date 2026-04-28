@@ -21,7 +21,7 @@ class ChatMessageTest {
 
     @Test
     fun `Role enum has expected values`() {
-        assertThat(Role.values().toList()).containsExactly(Role.USER, Role.ASSISTANT, Role.SYSTEM)
+        assertThat(Role.values().toList()).containsExactly(Role.USER, Role.ASSISTANT, Role.SYSTEM, Role.TOOL)
     }
 
     @Test
