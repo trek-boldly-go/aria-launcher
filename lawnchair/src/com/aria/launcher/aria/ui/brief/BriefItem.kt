@@ -97,6 +97,29 @@ sealed class BriefItem {
         override fun stableKey() = "contextbar"
     }
 
+    /** Reports an action ARIA already executed autonomously. */
+    data class ActionReport(
+        val icon: String,
+        val headline: String,
+        val subtext: String?,
+        val toolName: String,
+        val action: BriefAction?,
+    ) : BriefItem() {
+        override fun stableKey() = "action_${toolName}_${headline.hashCode()}"
+    }
+
+    /** Holds a pending tool call that requires user approval before execution. */
+    data class ConfirmationRequest(
+        val icon: String,
+        val headline: String,
+        val subtext: String?,
+        val toolName: String,
+        val pendingToolCallJson: String,
+        val actions: List<BriefAction>,
+    ) : BriefItem() {
+        override fun stableKey() = "confirm_${toolName}_${headline.hashCode()}"
+    }
+
     fun isDismissible(): Boolean = when (this) {
         is AlertAssessed -> severity != AlertSeverity.CRITICAL
         is ReminderNudge -> true
@@ -106,6 +129,8 @@ sealed class BriefItem {
         is ProactiveSuggestion -> dismissible
         is VenueCard -> true
         is ContextBar -> false
+        is ActionReport -> true
+        is ConfirmationRequest -> false
     }
 }
 
@@ -123,3 +148,22 @@ data class McpToolCall(
 )
 
 enum class AlertSeverity { INFO, WARNING, CRITICAL }
+
+/**
+ * Unified accent vocabulary for all Brief card types.
+ * Each value maps to a single color via [briefAccentColor].
+ */
+enum class BriefAccent {
+    CRITICAL,
+    WARNING,
+    ACTION,
+    ACTED,
+    TIMELY,
+    NEUTRAL,
+}
+
+fun AlertSeverity.toBriefAccent(): BriefAccent = when (this) {
+    AlertSeverity.CRITICAL -> BriefAccent.CRITICAL
+    AlertSeverity.WARNING -> BriefAccent.WARNING
+    AlertSeverity.INFO -> BriefAccent.TIMELY
+}

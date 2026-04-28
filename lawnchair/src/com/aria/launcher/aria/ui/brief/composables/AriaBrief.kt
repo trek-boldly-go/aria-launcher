@@ -11,14 +11,9 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -26,8 +21,8 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.aria.launcher.aria.ui.brief.BriefAccent
 import com.aria.launcher.aria.ui.brief.BriefAction
 import com.aria.launcher.aria.ui.brief.BriefItem
 
@@ -192,44 +187,70 @@ private fun BriefItemCard(
         is BriefItem.VenueCard ->
             VenueCardComposable(item, onActionClick)
 
+        is BriefItem.ActionReport ->
+            ActionReportCard(item, onActionClick, onDismiss)
+
+        is BriefItem.ConfirmationRequest ->
+            ConfirmationRequestCard(item, onActionClick)
+
         is BriefItem.ContextBar -> {
             // ContextBar renders in the greeting area, not in the Brief list
         }
     }
 }
 
-/** Stub for MCP live data cards — wired up fully in Session 8+ MCP phase. */
 @Composable
 private fun LiveDataBriefCard(
     item: BriefItem.LiveDataCard,
     onActionClick: (BriefAction) -> Unit,
 ) {
-    BriefCard {
-        Text(
-            text = item.headline,
-            style = MaterialTheme.typography.titleSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (item.subtext != null) {
-            Text(
-                text = item.subtext,
-                style = MaterialTheme.typography.bodySmall,
-                color = BriefCardDefaults.subtitleColor,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (item.action != null) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Spacer(modifier = Modifier.weight(1f))
-                TextButton(onClick = { onActionClick(item.action) }) {
-                    Text(
-                        text = item.action.label,
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                }
-            }
-        }
-    }
+    UnifiedBriefCard(
+        headline = item.headline,
+        subtext = item.subtext,
+        primaryAction = item.action,
+        onActionClick = onActionClick,
+    )
+}
+
+@Composable
+private fun ActionReportCard(
+    item: BriefItem.ActionReport,
+    onActionClick: (BriefAction) -> Unit,
+    onDismiss: (() -> Unit)?,
+) {
+    UnifiedBriefCard(
+        headline = item.headline,
+        subtext = item.subtext,
+        overlineText = "ARIA ACTED",
+        overlineColor = briefOverlineColor(BriefAccent.ACTED),
+        accentColor = briefAccentColor(BriefAccent.ACTED),
+        primaryAction = item.action,
+        dismissLabel = if (onDismiss != null) "OK" else null,
+        onActionClick = onActionClick,
+        onDismiss = onDismiss,
+    )
+}
+
+@Composable
+private fun ConfirmationRequestCard(
+    item: BriefItem.ConfirmationRequest,
+    onActionClick: (BriefAction) -> Unit,
+) {
+    val primary = item.actions.firstOrNull()
+    val dismiss = item.actions.lastOrNull { it.label == "Dismiss" }
+    UnifiedBriefCard(
+        headline = item.headline,
+        subtext = item.subtext,
+        overlineText = "ARIA ASKS",
+        overlineColor = briefOverlineColor(BriefAccent.ACTION),
+        accentColor = briefAccentColor(BriefAccent.ACTION),
+        primaryAction = primary,
+        dismissLabel = dismiss?.label,
+        onActionClick = onActionClick,
+        onDismiss = if (dismiss != null) {
+            { onActionClick(dismiss) }
+        } else {
+            null
+        },
+    )
 }

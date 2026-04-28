@@ -30,6 +30,21 @@ class SkillOrchestrator @Inject constructor(
         if (existing.isEmpty()) {
             Log.d(TAG, "No skills found, seeding built-in skills")
             skillDao.insertSkills(BuiltInSkills.all())
+        } else {
+            // Remove built-in skills that no longer exist (renamed or deleted)
+            val currentIds = BuiltInSkills.all().map { it.id }.toSet()
+            val orphaned = existing.filter { it.sourceType == "BUILT_IN" && it.id !in currentIds }
+            for (skill in orphaned) {
+                skillDao.deleteSkill(skill.id)
+                Log.d(TAG, "Removed orphaned built-in skill: ${skill.id}")
+            }
+            // Seed any new built-in skills not yet in the database
+            val existingIds = existing.map { it.id }.toSet()
+            val newSkills = BuiltInSkills.all().filter { it.id !in existingIds }
+            if (newSkills.isNotEmpty()) {
+                skillDao.insertSkills(newSkills)
+                Log.d(TAG, "Seeded ${newSkills.size} new built-in skills")
+            }
         }
 
         // Seed scheduled agentskills that aren't yet in the database

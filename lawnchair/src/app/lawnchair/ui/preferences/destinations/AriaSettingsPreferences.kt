@@ -579,6 +579,33 @@ fun AriaSettingsPreferences(
             }
         }
 
+        PreferenceGroup(heading = "Agentic Brief") {
+            val agenticEnabled by prefs.agenticBriefEnabled
+                .collectAsState(initial = false)
+            Item {
+                ClickablePreference(
+                    label = "Agentic Brief",
+                    subtitle = if (agenticEnabled) {
+                        "ARIA can set alarms, get directions, and more autonomously"
+                    } else {
+                        "Brief only curates information — no autonomous actions"
+                    },
+                    onClick = {
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                prefs.setAgenticBriefEnabled(!agenticEnabled)
+                            }
+                            Toast.makeText(
+                                context,
+                                if (!agenticEnabled) "Agentic Brief enabled" else "Agentic Brief disabled",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    },
+                )
+            }
+        }
+
         PreferenceGroup(heading = "Rules") {
             Item {
                 ClickablePreference(

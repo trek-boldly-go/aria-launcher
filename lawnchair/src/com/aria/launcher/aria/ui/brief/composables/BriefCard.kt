@@ -61,6 +61,7 @@ fun BriefCard(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 0.dp,
         border = BorderStroke(
             width = 0.5.dp,

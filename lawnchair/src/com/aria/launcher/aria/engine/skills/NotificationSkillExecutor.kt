@@ -17,14 +17,14 @@ class NotificationSkillExecutor(
     override val supportedSkillIds = setOf(
         "gmail.inbox_summary",
         "messages.unread",
-        "spotify.now_playing",
+        "media.now_playing",
     )
 
     override suspend fun execute(skill: AppSkill): SkillResult? {
         return when (skill.id) {
             "gmail.inbox_summary" -> executeGmailSummary(skill)
             "messages.unread" -> executeUnreadMessages(skill)
-            "spotify.now_playing" -> executeNowPlaying(skill)
+            "media.now_playing" -> executeNowPlaying(skill)
             else -> null
         }
     }
@@ -104,16 +104,17 @@ class NotificationSkillExecutor(
     }
 
     private fun executeNowPlaying(skill: AppSkill): SkillResult? {
-        val notifications = AriaNotificationListener.getNotificationsForPackage(skill.appPackage)
-        val mediaNotification = notifications.find {
-            it.category == "transport" || it.isOngoing
+        // Scan all notifications for active media playback (any app)
+        val mediaNotification = AriaNotificationListener.getNotifications().find {
+            it.category == "transport" || (it.isOngoing && it.title != null)
         } ?: return null
 
         val title = mediaNotification.title ?: "Unknown Track"
         val artist = mediaNotification.text ?: ""
+        val sourcePackage = mediaNotification.packageName
 
         val actions = listOf(
-            SkillAction("Open Spotify", "OPEN_APP", skill.appPackage),
+            SkillAction("Open Player", "OPEN_APP", sourcePackage),
         )
 
         return SkillResult(

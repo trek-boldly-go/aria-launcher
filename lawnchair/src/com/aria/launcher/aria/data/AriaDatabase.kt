@@ -5,6 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.aria.launcher.aria.engine.rules.AriaRule
 import com.aria.launcher.aria.engine.rules.AriaRuleDao
 import com.aria.launcher.aria.engine.rules.RuleTypeConverters
@@ -20,6 +22,7 @@ import com.aria.launcher.aria.engine.rules.RuleTypeConverters
         SsidClassification::class,
         AriaRule::class,
         AppChain::class,
+        DomainPermission::class,
     ],
     version = 10,
     exportSchema = true,
@@ -34,9 +37,23 @@ abstract class AriaDatabase : RoomDatabase() {
     abstract fun ssidClassificationDao(): SsidClassificationDao
     abstract fun ariaRuleDao(): AriaRuleDao
     abstract fun appChainDao(): AppChainDao
+    abstract fun domainPermissionDao(): DomainPermissionDao
 
     companion object {
         private const val DATABASE_NAME = "aria_db"
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `domain_permissions` (
+                        `domain` TEXT NOT NULL,
+                        `allowedMethods` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`domain`)
+                    )""",
+                )
+            }
+        }
 
         @Volatile
         private var instance: AriaDatabase? = null
@@ -47,7 +64,7 @@ abstract class AriaDatabase : RoomDatabase() {
                 AriaDatabase::class.java,
                 DATABASE_NAME,
             )
-                .fallbackToDestructiveMigration(true)
+                .addMigrations(MIGRATION_9_10)
                 .build()
                 .also { instance = it }
         }
