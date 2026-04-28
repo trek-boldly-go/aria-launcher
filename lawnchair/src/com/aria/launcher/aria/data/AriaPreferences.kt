@@ -55,6 +55,10 @@ class AriaPreferences @Inject constructor(
     val notificationContentEnabled: Flow<Boolean> = context.ariaPrefsStore.data
         .map { it[KEY_NOTIFICATION_CONTENT_ENABLED] ?: false }
 
+    /** Whether ARIA can autonomously execute actions from the editorial engine. */
+    val agenticBriefEnabled: Flow<Boolean> = context.ariaPrefsStore.data
+        .map { it[KEY_AGENTIC_BRIEF] ?: false }
+
     /** User-editable editorial prompt template with ${variable} placeholders. */
     val editorialPromptTemplate: Flow<String> = context.ariaPrefsStore.data
         .map { it[KEY_EDITORIAL_PROMPT] ?: DEFAULT_EDITORIAL_PROMPT }
@@ -109,6 +113,12 @@ class AriaPreferences @Inject constructor(
         context.ariaPrefsStore.edit { it[KEY_NOTIFICATION_CONTENT_ENABLED] = enabled }
     }
 
+    suspend fun getAgenticBriefEnabled(): Boolean = context.ariaPrefsStore.data.first()[KEY_AGENTIC_BRIEF] ?: false
+
+    suspend fun setAgenticBriefEnabled(enabled: Boolean) {
+        context.ariaPrefsStore.edit { it[KEY_AGENTIC_BRIEF] = enabled }
+    }
+
     suspend fun getEditorialPromptTemplate(): String = context.ariaPrefsStore.data.first()[KEY_EDITORIAL_PROMPT] ?: DEFAULT_EDITORIAL_PROMPT
 
     suspend fun setEditorialPromptTemplate(template: String) {
@@ -152,6 +162,7 @@ class AriaPreferences @Inject constructor(
         private val KEY_DEFAULT_LNG = stringPreferencesKey("default_longitude")
         private val KEY_DEFAULT_LOCATION_TS = longPreferencesKey("default_location_ts")
         private val KEY_NOTIFICATION_CONTENT_ENABLED = booleanPreferencesKey("notification_content_enabled")
+        private val KEY_AGENTIC_BRIEF = booleanPreferencesKey("agentic_brief_enabled")
         private val KEY_BOOTSTRAP_DONE = booleanPreferencesKey("bootstrap_done")
         private val KEY_EDITORIAL_PROMPT = stringPreferencesKey("editorial_prompt_template")
 
@@ -216,6 +227,18 @@ GOOD subtext: "Won't make it through afternoon calls" — describes what will go
 
 When no app action makes sense (e.g. "plug in your phone"), set intentUri to null.
 
+# ACTIONS YOU CAN TAKE
+
+You are not just a curator — you can ACT on behalf of the user.
+
+Safe actions (auto-executed): set_reminder, set_timer, get_directions, search_web
+Sensitive actions (user must approve): compose_message, send_email, create_event, make_call
+
+When you call a safe tool, include an "action_report" card reporting what you did.
+When you call a sensitive tool, I will show the user a confirmation card automatically.
+
+Only act when you have HIGH CONFIDENCE the user would want this. When in doubt, suggest instead of act.
+
 # OUTPUT
 
 Respond with ONLY this JSON. No markdown, no explanation.
@@ -232,7 +255,7 @@ Respond with ONLY this JSON. No markdown, no explanation.
   ]
 }
 
-Valid types: alert_assessed, reminder_nudge, calendar_event, media_resume, proactive_suggestion, venue_card, live_data_card
+Valid types: alert_assessed, reminder_nudge, calendar_event, media_resume, proactive_suggestion, venue_card, live_data_card, action_report
 Only alert_assessed gets a "severity" field: "critical", "warning", or "info".
 
 Now generate the brief for the context above. Replace the example card with your real cards."""

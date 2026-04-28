@@ -2,10 +2,13 @@
 package com.aria.launcher.aria.engine
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import com.aria.launcher.aria.chat.ToolExecutor
+import com.aria.launcher.aria.chat.ToolResult
 import com.aria.launcher.aria.data.AriaNotificationListener
 import com.aria.launcher.aria.data.AriaPreferences
+import com.aria.launcher.aria.data.DomainPermissionDao
 import com.aria.launcher.aria.data.UsageDataRepository
 import com.aria.launcher.aria.data.WeatherProvider
 import com.aria.launcher.aria.engine.skills.AgentSkillEntry
@@ -18,15 +21,18 @@ import com.aria.launcher.aria.llm.LlmProvider
 import com.aria.launcher.aria.llm.LlmProviderManager
 import com.aria.launcher.aria.llm.LlmResult
 import com.aria.launcher.aria.llm.Role
+import com.aria.launcher.aria.llm.ToolCall
 import com.aria.launcher.aria.ui.brief.AlertSeverity
 import com.aria.launcher.aria.ui.brief.BriefAction
 import com.aria.launcher.aria.ui.brief.BriefItem
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -51,6 +57,7 @@ class BriefEditorialEngine @Inject constructor(
     private val appLabelResolver: AppLabelResolver,
     private val appActivityCatalog: AppActivityCatalog,
     private val agentSkillManager: AgentSkillManager,
+    private val domainPermissionDao: DomainPermissionDao,
     @AriaLlmClient private val httpClient: OkHttpClient,
     @ApplicationContext private val appContext: Context,
 ) {
@@ -108,10 +115,17 @@ class BriefEditorialEngine @Inject constructor(
         )
 
         val notifContentEnabled = ariaPreferences.getNotificationContentEnabled()
+        val agenticMode = ariaPreferences.getAgenticBriefEnabled()
 
-        // Use tool-calling loop when skills or notification reading are available
-        if (heartbeatSkills.isNotEmpty() || notifContentEnabled) {
-            return generateBriefWithTools(provider, systemPrompt, heartbeatSkills, notifContentEnabled)
+        // Use tool-calling loop when skills, notification reading, or agentic mode are available
+        if (heartbeatSkills.isNotEmpty() || notifContentEnabled || agenticMode) {
+            return generateBriefWithTools(
+                provider,
+                systemPrompt,
+                heartbeatSkills,
+                notifContentEnabled,
+                agenticMode,
+            )
         }
 
         // Fallback: no skills and no notification content tool, simple completion
@@ -140,12 +154,18 @@ class BriefEditorialEngine @Inject constructor(
     /**
      * Heartbeat path: uses completeWithTools() so the LLM can call fetch_url
      * and activate_skill to bring external data into the Brief.
+     *
+     * In agentic mode, tools are tier-checked before execution:
+     * - AUTO tools execute immediately and produce ActionReport cards
+     * - CONFIRM tools are held and produce ConfirmationRequest cards
+     * - NEVER tools are rejected (shouldn't be offered, but safety net)
      */
     private suspend fun generateBriefWithTools(
         provider: LlmProvider,
         systemPrompt: String,
         skills: List<AgentSkillEntry>,
         notificationContentEnabled: Boolean = false,
+        agenticMode: Boolean = false,
     ): List<BriefItem>? {
         val toolExecutor = ToolExecutor(
             context = appContext,
@@ -155,12 +175,22 @@ class BriefEditorialEngine @Inject constructor(
             isNotificationContentEnabled = { notificationContentEnabled },
         )
         val skillNames = skills.map { it.name }
-        val tools = AriaPrompts.buildEditorialTools(skillNames, notificationContentEnabled)
+        val capabilities = if (agenticMode) capabilityCatalog.getCapabilities() else emptyList()
+        val tools = AriaPrompts.buildEditorialTools(
+            skillNames,
+            notificationContentEnabled,
+            agenticMode,
+            capabilities,
+        )
+        val maxRounds = if (agenticMode) MAX_TOOL_ROUNDS_AGENTIC else MAX_TOOL_ROUNDS
+
+        val executedActions = mutableListOf<ExecutedAction>()
+        val pendingConfirmations = mutableListOf<PendingConfirmation>()
 
         var messages = listOf(ChatMessage(Role.USER, "Generate the Brief for this context."))
         var round = 0
 
-        while (round < MAX_TOOL_ROUNDS) {
+        while (round < maxRounds) {
             val result = provider.completeWithTools(
                 systemPrompt = systemPrompt,
                 messages = messages,
@@ -171,7 +201,8 @@ class BriefEditorialEngine @Inject constructor(
             when (result) {
                 is LlmResult.Text -> {
                     Log.d(TAG, "Heartbeat LLM response (round $round):\n${result.content}")
-                    return parseJsonToBriefItems(result.content)
+                    val items = parseJsonToBriefItems(result.content) ?: return null
+                    return items + buildAgenticCards(executedActions, pendingConfirmations)
                 }
 
                 is LlmResult.ToolUse -> {
@@ -180,12 +211,16 @@ class BriefEditorialEngine @Inject constructor(
                         "Heartbeat tool calls (round $round): " +
                             result.toolCalls.joinToString { it.name },
                     )
-                    val toolResults = result.toolCalls.map { toolCall ->
-                        toolExecutor.execute(toolCall)
+                    val toolResultTexts = result.toolCalls.map { toolCall ->
+                        processToolCall(
+                            toolCall,
+                            toolExecutor,
+                            agenticMode,
+                            executedActions,
+                            pendingConfirmations,
+                        )
                     }
-                    val toolResultText = toolResults.joinToString("\n") {
-                        "[Tool ${it.toolName}]: ${it.result}"
-                    }
+                    val toolResultText = toolResultTexts.joinToString("\n")
                     messages = messages + listOf(
                         ChatMessage(Role.ASSISTANT, result.content),
                         ChatMessage(Role.USER, toolResultText),
@@ -201,9 +236,169 @@ class BriefEditorialEngine @Inject constructor(
             }
         }
 
-        Log.w(TAG, "Heartbeat exceeded max tool rounds ($MAX_TOOL_ROUNDS)")
+        Log.w(TAG, "Heartbeat exceeded max tool rounds ($maxRounds)")
         return null
     }
+
+    /**
+     * Processes a single tool call through the permission tier system.
+     * Returns the text to feed back to the LLM as the tool result.
+     */
+    private suspend fun processToolCall(
+        toolCall: ToolCall,
+        toolExecutor: ToolExecutor,
+        agenticMode: Boolean,
+        executedActions: MutableList<ExecutedAction>,
+        pendingConfirmations: MutableList<PendingConfirmation>,
+    ): String {
+        if (!agenticMode) {
+            val result = toolExecutor.execute(toolCall)
+            return "[Tool ${result.toolName}]: ${result.result}"
+        }
+
+        val tier = resolveTier(toolCall)
+        Log.d(TAG, "Tool ${toolCall.name} tier: $tier")
+
+        return when (tier) {
+            ToolPermissionTier.AUTO -> {
+                val result = toolExecutor.execute(toolCall)
+                if (result.success) {
+                    executedActions.add(ExecutedAction(toolCall, result))
+                }
+                "[Tool ${result.toolName}]: ${result.result}"
+            }
+
+            ToolPermissionTier.CONFIRM -> {
+                pendingConfirmations.add(PendingConfirmation(toolCall))
+                "[Tool ${toolCall.name}]: Action held for user confirmation. " +
+                    "The user will see an approval card on their home screen."
+            }
+
+            ToolPermissionTier.NEVER -> {
+                "[Tool ${toolCall.name}]: This action is not available in the Brief."
+            }
+        }
+    }
+
+    /** Resolves the permission tier, with special handling for fetch_url domain checks. */
+    private suspend fun resolveTier(toolCall: ToolCall): ToolPermissionTier {
+        if (toolCall.name == "fetch_url") {
+            val url = toolCall.arguments["url"]?.jsonPrimitive?.contentOrNull
+                ?: return ToolPermissionTier.CONFIRM
+            val method = toolCall.arguments["method"]?.jsonPrimitive?.contentOrNull?.uppercase() ?: "GET"
+            return EditorialToolPolicy.tierForFetchUrl(url, method, domainPermissionDao)
+        }
+        return EditorialToolPolicy.tierFor(toolCall.name)
+    }
+
+    /** Constructs ActionReport and ConfirmationRequest cards from agentic execution results. */
+    private fun buildAgenticCards(
+        executedActions: List<ExecutedAction>,
+        pendingConfirmations: List<PendingConfirmation>,
+    ): List<BriefItem> {
+        val cards = mutableListOf<BriefItem>()
+
+        for (action in executedActions) {
+            cards.add(
+                BriefItem.ActionReport(
+                    icon = iconForTool(action.toolCall.name),
+                    headline = action.result.result.take(60),
+                    subtext = null,
+                    toolName = action.toolCall.name,
+                    action = null,
+                ),
+            )
+        }
+
+        for (pending in pendingConfirmations) {
+            val toolCallJson = json.encodeToString(serializeToolCall(pending.toolCall))
+            val isFetchUrl = pending.toolCall.name == "fetch_url"
+            val actions = mutableListOf(
+                BriefAction(label = "Approve", intentUri = "aria://confirm/approve"),
+            )
+            if (isFetchUrl) {
+                actions.add(BriefAction(label = "Always Allow", intentUri = "aria://confirm/always"))
+            }
+            actions.add(BriefAction(label = "Dismiss", intentUri = "aria://confirm/dismiss"))
+
+            cards.add(
+                BriefItem.ConfirmationRequest(
+                    icon = iconForTool(pending.toolCall.name),
+                    headline = describeToolCall(pending.toolCall),
+                    subtext = "ARIA needs your OK",
+                    toolName = pending.toolCall.name,
+                    pendingToolCallJson = toolCallJson,
+                    actions = actions,
+                ),
+            )
+        }
+
+        return cards
+    }
+
+    private fun serializeToolCall(toolCall: ToolCall): JsonObject {
+        return kotlinx.serialization.json.buildJsonObject {
+            put("id", JsonPrimitive(toolCall.id))
+            put("name", JsonPrimitive(toolCall.name))
+            put("arguments", JsonObject(toolCall.arguments))
+        }
+    }
+
+    private fun describeToolCall(toolCall: ToolCall): String {
+        val args = toolCall.arguments
+        return when (toolCall.name) {
+            "compose_message" -> {
+                val contact = args["contact"]?.jsonPrimitive?.contentOrNull ?: "someone"
+                "Text $contact?"
+            }
+
+            "send_email" -> {
+                val to = args["to"]?.jsonPrimitive?.contentOrNull ?: "someone"
+                "Email $to?"
+            }
+
+            "make_call" -> {
+                val number = args["number"]?.jsonPrimitive?.contentOrNull ?: "someone"
+                "Call $number?"
+            }
+
+            "create_event" -> {
+                val title = args["title"]?.jsonPrimitive?.contentOrNull ?: "event"
+                "Create \"$title\"?"
+            }
+
+            "fetch_url" -> {
+                val url = args["url"]?.jsonPrimitive?.contentOrNull ?: "a URL"
+                val domain = try {
+                    Uri.parse(url).host
+                } catch (_: Exception) {
+                    url
+                }
+                "Fetch from $domain?"
+            }
+
+            "share_text" -> "Share text?"
+
+            else -> "${toolCall.name}?"
+        }
+    }
+
+    private fun iconForTool(toolName: String): String = when (toolName) {
+        "set_reminder" -> "alarm"
+        "set_timer" -> "timer"
+        "get_directions" -> "directions_car"
+        "search_web" -> "search"
+        "compose_message" -> "message"
+        "send_email" -> "email"
+        "make_call" -> "call"
+        "create_event" -> "event"
+        "fetch_url" -> "cloud_download"
+        "share_text" -> "share"
+        else -> "smart_toy"
+    }
+
+    private data class ExecutedAction(val toolCall: ToolCall, val result: ToolResult)
+    private data class PendingConfirmation(val toolCall: ToolCall)
 
     private fun parseJsonToBriefItems(jsonText: String): List<BriefItem>? {
         return try {
@@ -288,6 +483,14 @@ class BriefEditorialEngine @Inject constructor(
                 subtext = subtext,
                 action = action,
                 refreshedAt = System.currentTimeMillis(),
+            )
+
+            "action_report" -> BriefItem.ActionReport(
+                icon = icon,
+                headline = headline,
+                subtext = subtext,
+                toolName = obj["tool_name"]?.jsonPrimitive?.contentOrNull ?: "unknown",
+                action = action,
             )
 
             else -> null
@@ -412,6 +615,7 @@ class BriefEditorialEngine @Inject constructor(
     companion object {
         private const val TAG = "ARIA.EditorialEngine"
         private const val MAX_TOOL_ROUNDS = 3
+        private const val MAX_TOOL_ROUNDS_AGENTIC = 5
         private const val MIN_CALL_INTERVAL_MS = 60_000L
         private const val RATE_LIMIT_BACKOFF_MS = 120_000L
 
@@ -444,6 +648,8 @@ class BriefEditorialEngine @Inject constructor(
             "calendar" to "calendar_event",
             "media" to "media_resume",
             "venue" to "venue_card",
+            "action" to "action_report",
+            "action_completed" to "action_report",
         )
 
         /** Fallback intent URIs for common LLM-generated card types/icons. */

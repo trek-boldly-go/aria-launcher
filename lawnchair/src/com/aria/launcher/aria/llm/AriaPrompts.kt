@@ -3,6 +3,7 @@ package com.aria.launcher.aria.llm
 import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.engine.ContextKey
 import com.aria.launcher.aria.engine.DeviceCapabilityCatalog
+import com.aria.launcher.aria.engine.EditorialToolPolicy
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -454,21 +455,35 @@ object AriaPrompts {
     }
 
     /**
-     * Builds the minimal tool set for the editorial engine (heartbeat).
-     * Only includes fetch_url and optionally activate_skill — not the full device tool set.
+     * Builds the tool set for the editorial engine (heartbeat).
+     *
+     * When [agenticMode] is false (default), only includes fetch_url, activate_skill,
+     * and read_notifications — the original restricted set.
+     *
+     * When [agenticMode] is true, includes all tools where
+     * [EditorialToolPolicy.isOfferedToEditorial] returns true, filtered by device
+     * capabilities. This expands the editorial engine to act on behalf of the user.
      */
     fun buildEditorialTools(
         skillNames: List<String>,
         notificationContentEnabled: Boolean = false,
+        agenticMode: Boolean = false,
+        capabilities: List<DeviceCapabilityCatalog.AppCapability> = emptyList(),
     ): List<ToolDefinition> {
-        val tools = mutableListOf(coreTools.first { it.name == "fetch_url" })
-        if (skillNames.isNotEmpty()) {
-            tools.add(buildActivateSkillTool(skillNames))
+        if (!agenticMode) {
+            val tools = mutableListOf(coreTools.first { it.name == "fetch_url" })
+            if (skillNames.isNotEmpty()) {
+                tools.add(buildActivateSkillTool(skillNames))
+            }
+            if (notificationContentEnabled) {
+                tools.add(readNotificationsTool)
+            }
+            return tools
         }
-        if (notificationContentEnabled) {
-            tools.add(readNotificationsTool)
-        }
-        return tools
+
+        // Agentic mode: expose all tools that pass the editorial policy filter
+        val allTools = buildTools(capabilities, skillNames, notificationContentEnabled)
+        return allTools.filter { EditorialToolPolicy.isOfferedToEditorial(it.name) }
     }
 
     /** Creates the activate_skill tool definition for the given skill names. */

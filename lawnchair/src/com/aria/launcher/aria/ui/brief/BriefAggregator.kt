@@ -69,6 +69,10 @@ class BriefAggregator @Inject constructor(
 
                 is BriefItem.LiveDataCard -> 35
 
+                is BriefItem.ConfirmationRequest -> 90
+
+                is BriefItem.ActionReport -> 25
+
                 is BriefItem.ContextBar -> 0 // rendered separately, not in Brief list
             }
         }
