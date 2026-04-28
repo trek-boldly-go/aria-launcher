@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.aria.launcher.aria.ui.brief.AlertSeverity
+import com.aria.launcher.aria.ui.brief.BriefAccent
 import com.aria.launcher.aria.ui.brief.BriefAction
 import com.aria.launcher.aria.ui.brief.BriefItem
 
@@ -40,6 +41,28 @@ fun AlertAssessedCard(
         onActionClick = onActionClick,
         onDismiss = onDismiss,
     )
+}
+
+/** Accent bar (left strip) color for a [BriefAccent] level. */
+@Composable
+fun briefAccentColor(accent: BriefAccent): Color = when (accent) {
+    BriefAccent.CRITICAL -> MaterialTheme.colorScheme.error
+    BriefAccent.WARNING -> MaterialTheme.colorScheme.tertiary
+    BriefAccent.ACTION -> Color(0xFFE65100)
+    BriefAccent.ACTED -> Color(0xFF1B5E20)
+    BriefAccent.TIMELY -> MaterialTheme.colorScheme.primary
+    BriefAccent.NEUTRAL -> Color.Unspecified
+}
+
+/** Lighter overline-text color for a [BriefAccent] level. */
+@Composable
+fun briefOverlineColor(accent: BriefAccent): Color = when (accent) {
+    BriefAccent.CRITICAL -> MaterialTheme.colorScheme.error
+    BriefAccent.WARNING -> MaterialTheme.colorScheme.tertiary
+    BriefAccent.ACTION -> Color(0xFFFFA726)
+    BriefAccent.ACTED -> Color(0xFF4CAF50)
+    BriefAccent.TIMELY -> MaterialTheme.colorScheme.primary
+    BriefAccent.NEUTRAL -> Color.Unspecified
 }
 
 @Composable

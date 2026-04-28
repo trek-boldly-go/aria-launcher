@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Donovon Simpson. See LICENSE-ARIA.md for licensing terms.
 package com.aria.launcher.aria.data
 
+import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
@@ -9,7 +10,7 @@ class AriaNotificationListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName in NOISE_PACKAGES) return
-        if (sbn.isOngoing && sbn.notification.category == null) return
+        if (shouldFilter(sbn)) return
 
         synchronized(lock) {
             cachedNotifications[sbn.key] = sbn.toAriaNotification()
@@ -43,7 +44,7 @@ class AriaNotificationListener : NotificationListenerService() {
             }
             if (active != null) {
                 for (sbn in active) {
-                    if (sbn.packageName !in NOISE_PACKAGES) {
+                    if (sbn.packageName !in NOISE_PACKAGES && !shouldFilter(sbn)) {
                         cachedNotifications[sbn.key] = sbn.toAriaNotification()
                     }
                 }
@@ -124,6 +125,29 @@ class AriaNotificationListener : NotificationListenerService() {
             synchronized(lock) {
                 return cachedNotifications.values.filter { it.packageName == packageName }
             }
+        }
+
+        /**
+         * Categories worth keeping even when the notification is ongoing or
+         * from a foreground service. Everything else (VPN, sync, battery
+         * saver, "running in background") is filtered out.
+         */
+        private val MEANINGFUL_ONGOING_CATEGORIES = setOf(
+            Notification.CATEGORY_TRANSPORT,
+            Notification.CATEGORY_NAVIGATION,
+            Notification.CATEGORY_CALL,
+            Notification.CATEGORY_ALARM,
+            Notification.CATEGORY_REMINDER,
+            Notification.CATEGORY_MESSAGE,
+        )
+
+        private fun shouldFilter(sbn: StatusBarNotification): Boolean {
+            val category = sbn.notification.category
+            val flags = sbn.notification.flags
+            val isForegroundService = flags and Notification.FLAG_FOREGROUND_SERVICE != 0
+            if (sbn.isOngoing && category !in MEANINGFUL_ONGOING_CATEGORIES) return true
+            if (isForegroundService && category !in MEANINGFUL_ONGOING_CATEGORIES) return true
+            return false
         }
 
         private val NOISE_PACKAGES = setOf(

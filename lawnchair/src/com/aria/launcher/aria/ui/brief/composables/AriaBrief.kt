@@ -22,6 +22,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.aria.launcher.aria.ui.brief.BriefAccent
 import com.aria.launcher.aria.ui.brief.BriefAction
 import com.aria.launcher.aria.ui.brief.BriefItem
 
@@ -186,6 +187,12 @@ private fun BriefItemCard(
         is BriefItem.VenueCard ->
             VenueCardComposable(item, onActionClick)
 
+        is BriefItem.ActionReport ->
+            ActionReportCard(item, onActionClick, onDismiss)
+
+        is BriefItem.ConfirmationRequest ->
+            ConfirmationRequestCard(item, onActionClick)
+
         is BriefItem.ContextBar -> {
             // ContextBar renders in the greeting area, not in the Brief list
         }
@@ -202,5 +209,48 @@ private fun LiveDataBriefCard(
         subtext = item.subtext,
         primaryAction = item.action,
         onActionClick = onActionClick,
+    )
+}
+
+@Composable
+private fun ActionReportCard(
+    item: BriefItem.ActionReport,
+    onActionClick: (BriefAction) -> Unit,
+    onDismiss: (() -> Unit)?,
+) {
+    UnifiedBriefCard(
+        headline = item.headline,
+        subtext = item.subtext,
+        overlineText = "ARIA ACTED",
+        overlineColor = briefOverlineColor(BriefAccent.ACTED),
+        accentColor = briefAccentColor(BriefAccent.ACTED),
+        primaryAction = item.action,
+        dismissLabel = if (onDismiss != null) "OK" else null,
+        onActionClick = onActionClick,
+        onDismiss = onDismiss,
+    )
+}
+
+@Composable
+private fun ConfirmationRequestCard(
+    item: BriefItem.ConfirmationRequest,
+    onActionClick: (BriefAction) -> Unit,
+) {
+    val primary = item.actions.firstOrNull()
+    val dismiss = item.actions.lastOrNull { it.label == "Dismiss" }
+    UnifiedBriefCard(
+        headline = item.headline,
+        subtext = item.subtext,
+        overlineText = "ARIA ASKS",
+        overlineColor = briefOverlineColor(BriefAccent.ACTION),
+        accentColor = briefAccentColor(BriefAccent.ACTION),
+        primaryAction = primary,
+        dismissLabel = dismiss?.label,
+        onActionClick = onActionClick,
+        onDismiss = if (dismiss != null) {
+            { onActionClick(dismiss) }
+        } else {
+            null
+        },
     )
 }

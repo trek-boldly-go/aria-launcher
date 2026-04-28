@@ -337,15 +337,25 @@ class LawnchairLauncher : QuickstepLauncher() {
 
     override fun showDefaultOptions(x: Float, y: Float) {
         val showWallpaperCarousel = "+carousel" in preferenceManager2.launcherPopupOrder.firstBlocking()
+        val options = OptionsPopupView.getOptions(this)
 
-        if (showWallpaperCarousel) {
-            show<LawnchairLauncher>(
-                this,
-                getPopupTarget(x, y),
-                OptionsPopupView.getOptions(this),
+        // Hide Widgets and Apps when long-pressing in the Brief area (top 40% of screen)
+        val inBriefArea = y < dragLayer.height * 0.40f
+        val filtered = if (inBriefArea) {
+            ArrayList(
+                options.filter {
+                    it.labelRes != R.string.widget_button_text &&
+                        it.labelRes != R.string.all_apps_button_label
+                },
             )
         } else {
-            super.showDefaultOptions(x, y)
+            options
+        }
+
+        if (showWallpaperCarousel) {
+            show<LawnchairLauncher>(this, getPopupTarget(x, y), filtered)
+        } else {
+            OptionsPopupView.show(this, getPopupTarget(x, y), filtered, false)
         }
     }
 

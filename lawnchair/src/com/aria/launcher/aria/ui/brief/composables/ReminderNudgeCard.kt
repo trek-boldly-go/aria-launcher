@@ -3,9 +3,9 @@ package com.aria.launcher.aria.ui.brief.composables
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.aria.launcher.aria.ui.brief.BriefAccent
 import com.aria.launcher.aria.ui.brief.BriefAction
 import com.aria.launcher.aria.ui.brief.BriefItem
 
@@ -19,10 +19,10 @@ fun ReminderNudgeCard(
     UnifiedBriefCard(
         headline = item.headline,
         modifier = modifier,
-        accentColor = MaterialTheme.colorScheme.primary,
+        accentColor = briefAccentColor(BriefAccent.TIMELY),
         overlineIcon = Icons.Filled.Alarm,
         overlineText = "REMINDER",
-        overlineColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+        overlineColor = briefAccentColor(BriefAccent.TIMELY).copy(alpha = 0.7f),
         subtext = item.subtext,
         primaryAction = item.action,
         dismissLabel = "Dismiss",

@@ -101,6 +101,11 @@ class BriefEditorialEngine @Inject constructor(
             skills = skillCatalogText,
         )
         val systemPrompt = EditorialPrompts.resolveTemplate(template, variables)
+        Log.d(
+            TAG,
+            "Editorial context: " +
+                variables.entries.joinToString(", ") { "${it.key}=${it.value.take(80)}" },
+        )
 
         val notifContentEnabled = ariaPreferences.getNotificationContentEnabled()
 

@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.aria.launcher.aria.ui.brief.BriefAccent
 import com.aria.launcher.aria.ui.brief.BriefAction
 import com.aria.launcher.aria.ui.brief.BriefItem
 
@@ -29,9 +30,9 @@ fun CalendarEventCard(
     UnifiedBriefCard(
         headline = item.title,
         modifier = modifier,
-        accentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
+        accentColor = briefAccentColor(BriefAccent.TIMELY).copy(alpha = 0.75f),
         overlineText = item.timeDescription,
-        overlineColor = MaterialTheme.colorScheme.primary,
+        overlineColor = briefAccentColor(BriefAccent.TIMELY),
         overlineLetterSpacing = 0.3f,
         subtextContent = if (item.location != null) {
             {
