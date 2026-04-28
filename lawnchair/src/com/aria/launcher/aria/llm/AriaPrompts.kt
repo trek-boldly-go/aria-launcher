@@ -260,6 +260,124 @@ object AriaPrompts {
                 ),
             ),
         ),
+        ToolDefinition(
+            name = "lookup_contact",
+            description = "Search the user's device contacts by name. Returns matching " +
+                "contacts with their phone numbers and emails. Use this before compose_message, " +
+                "make_call, or send_email when the user refers to a person by name " +
+                "(\"text mom\", \"call Alex\"). Returns an error if the user hasn't enabled " +
+                "contact access in ARIA settings — do NOT retry the same call.",
+            inputSchema = mapOf(
+                "properties" to buildJsonObject {
+                    putJsonObject("query") {
+                        put("type", "string")
+                        put("description", "Name or partial name to search for")
+                    }
+                },
+                "required" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("query"))),
+            ),
+        ),
+        ToolDefinition(
+            name = "get_calendar_events",
+            description = "Read upcoming events from the user's calendar. " +
+                "Use for any \"what's on my calendar\", \"am I free\", or \"when is my next X\" " +
+                "question. Set days_ahead to whatever covers the question (1=today, 7=this week, " +
+                "30=this month, up to 90). The agent should filter by weekday or other " +
+                "criteria itself after reading the result.",
+            inputSchema = mapOf(
+                "properties" to buildJsonObject {
+                    putJsonObject("days_ahead") {
+                        put("type", "integer")
+                        put(
+                            "description",
+                            "How many days into the future to look. 1–90. Defaults to 7.",
+                        )
+                    }
+                    putJsonObject("max_results") {
+                        put("type", "integer")
+                        put("description", "Maximum events to return. 1–100. Defaults to 30.")
+                    }
+                },
+                "required" to kotlinx.serialization.json.JsonArray(emptyList()),
+            ),
+        ),
+        ToolDefinition(
+            name = "get_current_location",
+            description = "Returns the user's current GPS location as latitude/longitude with a " +
+                "human-readable label (city or locality) when available. Cached for 60 seconds " +
+                "to avoid GPS spam.",
+            inputSchema = mapOf(
+                "properties" to buildJsonObject {},
+                "required" to kotlinx.serialization.json.JsonArray(emptyList()),
+            ),
+        ),
+        ToolDefinition(
+            name = "list_apps",
+            description = "List the apps the user has installed and that have a launcher icon. " +
+                "Pass an optional query to filter by label or package. Use this when the user " +
+                "refers to an app by description (\"my budget app\", \"open the camera\") and " +
+                "you don't already know the package name. Returns label — package_name pairs.",
+            inputSchema = mapOf(
+                "properties" to buildJsonObject {
+                    putJsonObject("query") {
+                        put("type", "string")
+                        put(
+                            "description",
+                            "Optional: substring to filter apps by label or package name",
+                        )
+                    }
+                },
+                "required" to kotlinx.serialization.json.JsonArray(emptyList()),
+            ),
+        ),
+        ToolDefinition(
+            name = "get_weather",
+            description = "Get the current weather snapshot for the user's location " +
+                "(temperature, conditions, wind). Use for any direct weather question.",
+            inputSchema = mapOf(
+                "properties" to buildJsonObject {},
+                "required" to kotlinx.serialization.json.JsonArray(emptyList()),
+            ),
+        ),
+        ToolDefinition(
+            name = "remember",
+            description = "Store a long-term fact about the user so future conversations can " +
+                "reference it. Use ONLY for durable, non-trivial facts the user has explicitly " +
+                "shared (preferences, allergies, important people/places, routines). Do NOT " +
+                "call this for ephemeral context. Categories: preference, routine, person, " +
+                "place, general.",
+            inputSchema = mapOf(
+                "properties" to buildJsonObject {
+                    putJsonObject("fact") {
+                        put("type", "string")
+                        put("description", "The fact to remember (5–300 characters)")
+                    }
+                    putJsonObject("category") {
+                        put("type", "string")
+                        put(
+                            "description",
+                            "One of: preference, routine, person, place, general. Defaults to general.",
+                        )
+                    }
+                },
+                "required" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("fact"))),
+            ),
+        ),
+        ToolDefinition(
+            name = "forget",
+            description = "Find a stored memory matching the query and ask the user to confirm " +
+                "deletion. The user must reply \"yes\" before the memory is actually deleted. " +
+                "Use when the user asks ARIA to forget something (\"forget that I like coffee\").",
+            inputSchema = mapOf(
+                "properties" to buildJsonObject {
+                    putJsonObject("query") {
+                        put("type", "string")
+                        put("description", "Words from the fact you want to delete")
+                    }
+                },
+                "required" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("query"))),
+            ),
+        ),
     )
 
     /** Tool that lets the LLM read notification message bodies on demand. */

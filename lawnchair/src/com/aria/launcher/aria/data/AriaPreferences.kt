@@ -55,6 +55,18 @@ class AriaPreferences @Inject constructor(
     val notificationContentEnabled: Flow<Boolean> = context.ariaPrefsStore.data
         .map { it[KEY_NOTIFICATION_CONTENT_ENABLED] ?: false }
 
+    /** Whether the chat agent may look up device contacts. Off by default; opt-in. */
+    val contactsAccessEnabled: Flow<Boolean> = context.ariaPrefsStore.data
+        .map { it[KEY_CONTACTS_ACCESS_ENABLED] ?: false }
+
+    /** Whether the chat agent may read upcoming calendar events on demand. Off by default; opt-in. */
+    val calendarAccessEnabled: Flow<Boolean> = context.ariaPrefsStore.data
+        .map { it[KEY_CALENDAR_ACCESS_ENABLED] ?: false }
+
+    /** Whether the chat agent may resolve the current device location. Off by default; opt-in. */
+    val locationAccessEnabled: Flow<Boolean> = context.ariaPrefsStore.data
+        .map { it[KEY_LOCATION_ACCESS_ENABLED] ?: false }
+
     /** User-editable editorial prompt template with ${variable} placeholders. */
     val editorialPromptTemplate: Flow<String> = context.ariaPrefsStore.data
         .map { it[KEY_EDITORIAL_PROMPT] ?: DEFAULT_EDITORIAL_PROMPT }
@@ -109,6 +121,24 @@ class AriaPreferences @Inject constructor(
         context.ariaPrefsStore.edit { it[KEY_NOTIFICATION_CONTENT_ENABLED] = enabled }
     }
 
+    suspend fun getContactsAccessEnabled(): Boolean = context.ariaPrefsStore.data.first()[KEY_CONTACTS_ACCESS_ENABLED] ?: false
+
+    suspend fun setContactsAccessEnabled(enabled: Boolean) {
+        context.ariaPrefsStore.edit { it[KEY_CONTACTS_ACCESS_ENABLED] = enabled }
+    }
+
+    suspend fun getCalendarAccessEnabled(): Boolean = context.ariaPrefsStore.data.first()[KEY_CALENDAR_ACCESS_ENABLED] ?: false
+
+    suspend fun setCalendarAccessEnabled(enabled: Boolean) {
+        context.ariaPrefsStore.edit { it[KEY_CALENDAR_ACCESS_ENABLED] = enabled }
+    }
+
+    suspend fun getLocationAccessEnabled(): Boolean = context.ariaPrefsStore.data.first()[KEY_LOCATION_ACCESS_ENABLED] ?: false
+
+    suspend fun setLocationAccessEnabled(enabled: Boolean) {
+        context.ariaPrefsStore.edit { it[KEY_LOCATION_ACCESS_ENABLED] = enabled }
+    }
+
     suspend fun getEditorialPromptTemplate(): String = context.ariaPrefsStore.data.first()[KEY_EDITORIAL_PROMPT] ?: DEFAULT_EDITORIAL_PROMPT
 
     suspend fun setEditorialPromptTemplate(template: String) {
@@ -152,6 +182,9 @@ class AriaPreferences @Inject constructor(
         private val KEY_DEFAULT_LNG = stringPreferencesKey("default_longitude")
         private val KEY_DEFAULT_LOCATION_TS = longPreferencesKey("default_location_ts")
         private val KEY_NOTIFICATION_CONTENT_ENABLED = booleanPreferencesKey("notification_content_enabled")
+        private val KEY_CONTACTS_ACCESS_ENABLED = booleanPreferencesKey("contacts_access_enabled")
+        private val KEY_CALENDAR_ACCESS_ENABLED = booleanPreferencesKey("calendar_access_enabled")
+        private val KEY_LOCATION_ACCESS_ENABLED = booleanPreferencesKey("location_access_enabled")
         private val KEY_BOOTSTRAP_DONE = booleanPreferencesKey("bootstrap_done")
         private val KEY_EDITORIAL_PROMPT = stringPreferencesKey("editorial_prompt_template")
 

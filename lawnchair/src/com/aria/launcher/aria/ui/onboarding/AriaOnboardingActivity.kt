@@ -42,9 +42,11 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -138,6 +140,7 @@ class AriaOnboardingActivity : ComponentActivity() {
                         onGrantRuntimePermissions = { requestRuntimePermissions() },
                         onGrantNotifListener = { openNotificationListenerSettings() },
                         onFinish = { finishOnboarding(entryPoint) },
+                        ariaPreferences = entryPoint.ariaPreferences(),
                         llmProviderManager = entryPoint.llmProviderManager(),
                         liteRtModelManager = entryPoint.liteRtModelManager(),
                         liteRtLmProvider = entryPoint.liteRtLmProvider(),
@@ -290,6 +293,7 @@ private fun OnboardingWizard(
     onGrantRuntimePermissions: () -> Unit,
     onGrantNotifListener: () -> Unit,
     onFinish: () -> Unit,
+    ariaPreferences: AriaPreferences,
     llmProviderManager: LlmProviderManager,
     liteRtModelManager: LiteRtModelManager,
     liteRtLmProvider: LiteRtLmProvider,
@@ -323,6 +327,7 @@ private fun OnboardingWizard(
                     calendarGranted = calendarGranted,
                     onGrantUsageStats = onGrantUsageStats,
                     onGrantRuntimePermissions = onGrantRuntimePermissions,
+                    ariaPreferences = entryPoint.ariaPreferences(),
                 )
 
                 3 -> NotificationAccessPage(
@@ -483,7 +488,13 @@ private fun PermissionsPage(
     calendarGranted: Boolean,
     onGrantUsageStats: () -> Unit,
     onGrantRuntimePermissions: () -> Unit,
+    ariaPreferences: AriaPreferences,
 ) {
+    val scope = rememberCoroutineScope()
+    val contactsAgentEnabled by ariaPreferences.contactsAccessEnabled.collectAsState(initial = false)
+    val calendarAgentEnabled by ariaPreferences.calendarAccessEnabled.collectAsState(initial = false)
+    val locationAgentEnabled by ariaPreferences.locationAccessEnabled.collectAsState(initial = false)
+
     OnboardingPageLayout(
         title = "Permissions",
         subtitle = "ARIA needs these permissions for context-aware predictions. All data stays on your device.",
@@ -529,7 +540,89 @@ private fun PermissionsPage(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 52.dp, bottom = 8.dp),
             )
+
+            Text(
+                text = "Chat agent access",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            Text(
+                text = "Optional capabilities for the in-launcher chat agent. Each is opt-in; you can change these any time in ARIA settings.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+
+            AgentAccessToggle(
+                title = "Look up contacts in chat",
+                description = "Lets the agent resolve names like “text mom” to phone numbers. Contact data will be sent to your configured LLM provider.",
+                checked = contactsAgentEnabled,
+                onToggle = { newValue ->
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            ariaPreferences.setContactsAccessEnabled(newValue)
+                        }
+                    }
+                },
+            )
+            AgentAccessToggle(
+                title = "Read upcoming calendar events",
+                description = "Lets the agent answer “what's on my calendar” and “am I free Saturday” questions.",
+                checked = calendarAgentEnabled,
+                onToggle = { newValue ->
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            ariaPreferences.setCalendarAccessEnabled(newValue)
+                        }
+                    }
+                },
+            )
+            AgentAccessToggle(
+                title = "Use current location",
+                description = "Lets the agent answer weather and “where am I” questions.",
+                checked = locationAgentEnabled,
+                onToggle = { newValue ->
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            ariaPreferences.setLocationAccessEnabled(newValue)
+                        }
+                    }
+                },
+            )
         }
+    }
+}
+
+@Composable
+private fun AgentAccessToggle(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(modifier = Modifier.size(12.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onToggle,
+        )
     }
 }
 

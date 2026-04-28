@@ -13,9 +13,20 @@ import android.provider.MediaStore
 import android.text.format.DateUtils
 import android.util.Log
 import com.aria.launcher.aria.data.AriaNotificationListener
+import com.aria.launcher.aria.data.CalendarEventProvider
+import com.aria.launcher.aria.data.ContactsRepository
+import com.aria.launcher.aria.data.InsertResult
+import com.aria.launcher.aria.data.LocationProvider
+import com.aria.launcher.aria.data.MemoryRepository
+import com.aria.launcher.aria.data.UserMemory
+import com.aria.launcher.aria.data.WeatherProvider
+import com.aria.launcher.aria.engine.AppActivityCatalog
 import com.aria.launcher.aria.engine.AppLabelResolver
 import com.aria.launcher.aria.engine.skills.AgentSkillManager
 import com.aria.launcher.aria.llm.ToolCall
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -38,7 +49,17 @@ class ToolExecutor(
     private val httpClient: OkHttpClient? = null,
     private val agentSkillManager: AgentSkillManager? = null,
     private val appLabelResolver: AppLabelResolver? = null,
+    private val contactsRepository: ContactsRepository? = null,
+    private val calendarEventProvider: CalendarEventProvider? = null,
+    private val weatherProvider: WeatherProvider? = null,
+    private val locationProvider: LocationProvider? = null,
+    private val memoryRepository: MemoryRepository? = null,
+    private val appActivityCatalog: AppActivityCatalog? = null,
     private val isNotificationContentEnabled: () -> Boolean = { false },
+    private val isContactsAccessEnabled: () -> Boolean = { false },
+    private val isCalendarAccessEnabled: () -> Boolean = { false },
+    private val isLocationAccessEnabled: () -> Boolean = { false },
+    private val startForgetConfirmation: ((UserMemory) -> Unit)? = null,
 ) {
 
     fun execute(toolCall: ToolCall): ToolResult {
@@ -59,6 +80,13 @@ class ToolExecutor(
                 "share_text" -> executeShareText(toolCall)
                 "play_music" -> executePlayMusic(toolCall)
                 "read_notifications" -> executeReadNotifications(toolCall)
+                "lookup_contact" -> executeLookupContact(toolCall)
+                "get_calendar_events" -> executeGetCalendarEvents(toolCall)
+                "get_current_location" -> executeGetCurrentLocation(toolCall)
+                "list_apps" -> executeListApps(toolCall)
+                "get_weather" -> executeGetWeather(toolCall)
+                "remember" -> executeRemember(toolCall)
+                "forget" -> executeForget(toolCall)
                 else -> ToolResult(toolCall.id, toolCall.name, "Unknown tool: ${toolCall.name}", false)
             }
         } catch (e: Exception) {
@@ -409,6 +437,234 @@ class ToolExecutor(
         return ToolResult(toolCall.id, toolCall.name, lines.joinToString("\n"))
     }
 
+    private fun executeLookupContact(toolCall: ToolCall): ToolResult {
+        if (!isContactsAccessEnabled()) {
+            return ToolResult(
+                toolCall.id,
+                toolCall.name,
+                "Contact access is not enabled by the user. They can enable it in ARIA settings.",
+                false,
+            )
+        }
+        val query = toolCall.arguments["query"]?.jsonPrimitive?.contentOrNull
+            ?: return ToolResult(toolCall.id, toolCall.name, "Missing query", false)
+        val repo = contactsRepository
+            ?: return ToolResult(toolCall.id, toolCall.name, "Contacts repository not wired", false)
+
+        val matches = runBlocking { repo.search(query) }
+        if (matches.isEmpty()) {
+            return ToolResult(toolCall.id, toolCall.name, "No contacts found matching \"$query\".")
+        }
+        val lines = matches.map { match ->
+            buildString {
+                append(match.displayName)
+                if (match.phoneNumbers.isNotEmpty()) {
+                    append(" — phones: ")
+                    append(match.phoneNumbers.joinToString(", "))
+                }
+                if (match.emails.isNotEmpty()) {
+                    append(" / emails: ")
+                    append(match.emails.joinToString(", "))
+                }
+            }
+        }
+        return ToolResult(toolCall.id, toolCall.name, lines.joinToString("\n"))
+    }
+
+    private fun executeGetCalendarEvents(toolCall: ToolCall): ToolResult {
+        if (!isCalendarAccessEnabled()) {
+            return ToolResult(
+                toolCall.id,
+                toolCall.name,
+                "Calendar access is not enabled by the user. They can enable it in ARIA settings.",
+                false,
+            )
+        }
+        val provider = calendarEventProvider
+            ?: return ToolResult(toolCall.id, toolCall.name, "Calendar provider not wired", false)
+
+        val daysAhead = (toolCall.arguments["days_ahead"]?.jsonPrimitive?.intOrNull ?: 7)
+            .coerceIn(1, MAX_CALENDAR_DAYS)
+        val maxResults = (toolCall.arguments["max_results"]?.jsonPrimitive?.intOrNull ?: 30)
+            .coerceIn(1, MAX_CALENDAR_RESULTS)
+
+        val events = provider.getUpcomingEvents(windowMinutes = daysAhead * 24 * 60)
+            .take(maxResults)
+
+        if (events.isEmpty()) {
+            return ToolResult(
+                toolCall.id,
+                toolCall.name,
+                "No events in the next $daysAhead day${if (daysAhead == 1) "" else "s"}.",
+            )
+        }
+
+        val dateFormat = SimpleDateFormat("EEE MMM d", Locale.getDefault())
+        val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
+        val lines = events.map { ev ->
+            val start = Date(ev.startTimeMs)
+            val durationMin = ((ev.endTimeMs - ev.startTimeMs) / 60_000L).coerceAtLeast(0)
+            val whenStr = if (ev.isAllDay) {
+                "${dateFormat.format(start)} (all day)"
+            } else {
+                "${dateFormat.format(start)} ${timeFormat.format(start)} (${durationMin}m)"
+            }
+            "${ev.title} — $whenStr"
+        }
+        return ToolResult(toolCall.id, toolCall.name, lines.joinToString("\n"))
+    }
+
+    private fun executeGetCurrentLocation(toolCall: ToolCall): ToolResult {
+        if (!isLocationAccessEnabled()) {
+            return ToolResult(
+                toolCall.id,
+                toolCall.name,
+                "Location access is not enabled by the user. They can enable it in ARIA settings.",
+                false,
+            )
+        }
+        val provider = locationProvider
+            ?: return ToolResult(toolCall.id, toolCall.name, "Location provider not wired", false)
+        val snap = runBlocking { provider.getCurrentLocation() }
+            ?: return ToolResult(
+                toolCall.id,
+                toolCall.name,
+                "Location unavailable. Make sure location permission is granted.",
+                false,
+            )
+
+        val accuracyText = if (snap.accuracyMeters > 0f) {
+            " (accuracy ±${snap.accuracyMeters.toInt()}m)"
+        } else {
+            ""
+        }
+        val labelText = snap.label?.let { " — $it" } ?: ""
+        val text = "%.5f, %.5f%s%s".format(snap.lat, snap.lng, accuracyText, labelText)
+        return ToolResult(toolCall.id, toolCall.name, text)
+    }
+
+    private fun executeListApps(toolCall: ToolCall): ToolResult {
+        val query = toolCall.arguments["query"]?.jsonPrimitive?.contentOrNull?.lowercase()
+        val resolver = appLabelResolver
+            ?: return ToolResult(toolCall.id, toolCall.name, "App label resolver not wired", false)
+
+        val pm = context.packageManager
+        val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val resolveInfos = pm.queryIntentActivities(launcherIntent, 0)
+
+        val all = resolveInfos.map { it.activityInfo.packageName }.distinct()
+        val labeled = all.map { pkg -> resolver.resolve(pkg) to pkg }
+        val filtered = if (query.isNullOrBlank()) {
+            labeled.sortedBy { it.first.lowercase() }
+        } else {
+            labeled.filter { it.first.lowercase().contains(query) || it.second.contains(query) }
+                .sortedBy { it.first.lowercase() }
+        }
+        if (filtered.isEmpty()) {
+            return ToolResult(toolCall.id, toolCall.name, "No installed apps match \"$query\".")
+        }
+
+        val capped = filtered.take(MAX_APP_LIST_RESULTS)
+        val lines = capped.map { (label, pkg) -> "$label — $pkg" }
+        val suffix = if (filtered.size > MAX_APP_LIST_RESULTS) {
+            "\n... ${filtered.size - MAX_APP_LIST_RESULTS} more"
+        } else {
+            ""
+        }
+        // Tools that emit screen-deep-link hints — let the agent target activities directly.
+        val activityHint = if (capped.size <= MAX_APP_LIST_ACTIVITY_HINTS && appActivityCatalog != null) {
+            val summary = runBlocking {
+                appActivityCatalog.getPromptSummary(capped.map { it.second }, maxPerApp = 3)
+            }
+            if (summary.isNotBlank()) "\n\nDeep links available:\n$summary" else ""
+        } else {
+            ""
+        }
+        return ToolResult(toolCall.id, toolCall.name, lines.joinToString("\n") + suffix + activityHint)
+    }
+
+    private fun executeGetWeather(toolCall: ToolCall): ToolResult {
+        if (!isLocationAccessEnabled()) {
+            return ToolResult(
+                toolCall.id,
+                toolCall.name,
+                "Location access is not enabled by the user, so weather lookup is disabled.",
+                false,
+            )
+        }
+        val provider = weatherProvider
+            ?: return ToolResult(toolCall.id, toolCall.name, "Weather provider not wired", false)
+        val snapshot = runBlocking { provider.getWeather() }
+            ?: return ToolResult(toolCall.id, toolCall.name, "Weather unavailable.", false)
+
+        val text = buildString {
+            append(snapshot.toWeatherLine())
+            if (snapshot.windSpeedMph > 0) {
+                append(" · Wind ${snapshot.windSpeedMph} mph")
+                snapshot.windGustsMph?.let { append(", gusts $it mph") }
+            }
+        }
+        return ToolResult(toolCall.id, toolCall.name, text)
+    }
+
+    private fun executeRemember(toolCall: ToolCall): ToolResult {
+        val fact = toolCall.arguments["fact"]?.jsonPrimitive?.contentOrNull
+            ?: return ToolResult(toolCall.id, toolCall.name, "Missing fact", false)
+        val category = toolCall.arguments["category"]?.jsonPrimitive?.contentOrNull
+            ?: "general"
+        val repo = memoryRepository
+            ?: return ToolResult(toolCall.id, toolCall.name, "Memory repository not wired", false)
+
+        return when (val result = runBlocking { repo.rememberFromAgent(fact, category) }) {
+            is InsertResult.Inserted -> ToolResult(
+                toolCall.id,
+                toolCall.name,
+                "Remembered [$category]: $fact",
+            )
+            InsertResult.Duplicate -> ToolResult(
+                toolCall.id,
+                toolCall.name,
+                "Already known: $fact",
+            )
+            InsertResult.Invalid -> ToolResult(
+                toolCall.id,
+                toolCall.name,
+                "Fact rejected: must be 5–300 characters.",
+                false,
+            )
+            else -> ToolResult(
+                toolCall.id,
+                toolCall.name,
+                "Unexpected memory result: $result",
+                false,
+            )
+        }
+    }
+
+    private fun executeForget(toolCall: ToolCall): ToolResult {
+        val query = toolCall.arguments["query"]?.jsonPrimitive?.contentOrNull
+            ?: return ToolResult(toolCall.id, toolCall.name, "Missing query", false)
+        val repo = memoryRepository
+            ?: return ToolResult(toolCall.id, toolCall.name, "Memory repository not wired", false)
+        val confirmer = startForgetConfirmation
+            ?: return ToolResult(toolCall.id, toolCall.name, "Confirmation flow not wired", false)
+
+        val match = runBlocking { repo.findByQuery(query) }
+            ?: return ToolResult(
+                toolCall.id,
+                toolCall.name,
+                "No stored memory matches \"$query\".",
+                false,
+            )
+        confirmer(match)
+        return ToolResult(
+            toolCall.id,
+            toolCall.name,
+            "Found memory: “${match.fact}”. Reply “yes” to forget it, " +
+                "or “no” to keep it.",
+        )
+    }
+
     private fun launchIntent(intent: Intent, toolCall: ToolCall, successMessage: String): ToolResult {
         return try {
             context.startActivity(intent)
@@ -424,5 +680,9 @@ class ToolExecutor(
         private const val MAX_FETCH_RESPONSE_CHARS = 4000
         private const val MAX_NOTIFICATION_RESULTS = 20
         private const val MAX_NOTIFICATION_BODY_CHARS = 500
+        private const val MAX_CALENDAR_DAYS = 90
+        private const val MAX_CALENDAR_RESULTS = 100
+        private const val MAX_APP_LIST_RESULTS = 20
+        private const val MAX_APP_LIST_ACTIVITY_HINTS = 5
     }
 }

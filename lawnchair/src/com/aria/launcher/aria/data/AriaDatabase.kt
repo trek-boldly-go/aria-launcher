@@ -16,11 +16,12 @@ import com.aria.launcher.aria.engine.rules.RuleTypeConverters
         AppSkill::class,
         SkillResult::class,
         UserMemory::class,
+        UserMemoryFts::class,
         SsidClassification::class,
         AriaRule::class,
         AppChain::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 @TypeConverters(VenueCategoryConverter::class, VisitContextConverter::class, RuleTypeConverters::class)

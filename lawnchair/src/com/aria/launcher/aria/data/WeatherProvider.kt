@@ -1,19 +1,11 @@
 // Copyright (c) 2026 Donovon Simpson. See LICENSE-ARIA.md for licensing terms.
 package com.aria.launcher.aria.data
 
-import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
 import android.util.Log
-import androidx.core.content.ContextCompat
 import com.aria.launcher.aria.llm.AriaLlmClient
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
-import com.google.android.gms.tasks.Tasks
-import dagger.hilt.android.qualifiers.ApplicationContext
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
@@ -29,10 +21,9 @@ import okhttp3.Request
  */
 @Singleton
 class WeatherProvider @Inject constructor(
-    @ApplicationContext private val context: Context,
     @AriaLlmClient private val httpClient: OkHttpClient,
     private val json: Json,
-    private val ariaPreferences: AriaPreferences,
+    private val locationProvider: LocationProvider,
 ) {
     private var cached: WeatherSnapshot? = null
     private var cacheTimestamp: Long = 0L
@@ -125,49 +116,8 @@ class WeatherProvider @Inject constructor(
     }
 
     private fun getLocation(): Pair<Double, Double>? {
-        // Try GPS first; cache successful result as fallback
-        getGpsLocation()?.let { (lat, lng) ->
-            try {
-                kotlinx.coroutines.runBlocking {
-                    ariaPreferences.setDefaultLocation(lat, lng)
-                }
-            } catch (_: Exception) { }
-            return lat to lng
-        }
-        // Fallback: use last cached or manually-set location
         return try {
-            kotlinx.coroutines.runBlocking {
-                val lat = ariaPreferences.getDefaultLatitude() ?: return@runBlocking null
-                val lng = ariaPreferences.getDefaultLongitude() ?: return@runBlocking null
-                lat to lng
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun getGpsLocation(): Pair<Double, Double>? {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
-            != PackageManager.PERMISSION_GRANTED &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            return null
-        }
-
-        return try {
-            val client = LocationServices.getFusedLocationProviderClient(context)
-            val location = Tasks.await(
-                client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null),
-                10,
-                TimeUnit.SECONDS,
-            )
-            if (location != null) {
-                location.latitude to location.longitude
-            } else {
-                val last = Tasks.await(client.lastLocation, 5, TimeUnit.SECONDS)
-                if (last != null) last.latitude to last.longitude else null
-            }
+            runBlocking { locationProvider.getLatLng() }
         } catch (e: Exception) {
             Log.w(TAG, "Location unavailable", e)
             null
