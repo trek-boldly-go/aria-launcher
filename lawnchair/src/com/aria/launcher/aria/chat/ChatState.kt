@@ -17,9 +17,11 @@ import com.aria.launcher.aria.engine.DeviceCapabilityCatalog
 import com.aria.launcher.aria.engine.skills.AgentSkillManager
 import com.aria.launcher.aria.llm.AriaPrompts
 import com.aria.launcher.aria.llm.ChatMessage
+import com.aria.launcher.aria.llm.LlmProvider
 import com.aria.launcher.aria.llm.LlmProviderManager
 import com.aria.launcher.aria.llm.LlmResult
 import com.aria.launcher.aria.llm.Role
+import com.aria.launcher.aria.llm.ToolDefinition
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -238,11 +240,18 @@ class ChatState(
             )
 
             val notifContentEnabled = ariaPreferences.getNotificationContentEnabled()
-            val tools = AriaPrompts.buildTools(capabilities, skillNames, notifContentEnabled)
+            val allTools = AriaPrompts.buildTools(capabilities, skillNames, notifContentEnabled)
 
             val chatMessages = _messages.value.map { msg ->
                 ChatMessage(role = msg.role, content = msg.content)
             }
+
+            // Route on the recent tail (visible turns only) so follow-ups like "yes,
+            // send it" resolve against prior context rather than an isolated fragment.
+            val routerContext = chatMessages
+                .filter { it.content.isNotBlank() }
+                .takeLast(ROUTER_CONTEXT_MESSAGES)
+            val tools = routeTools(provider, routerContext, allTools)
 
             var round = 0
             var currentMessages = chatMessages
@@ -342,6 +351,41 @@ class ChatState(
         }
     }
 
+    /**
+     * Small-model tool budget: a cheap router pre-pass asks the model which tool
+     * groups the current turn might need, then trims [allTools] to those groups (plus
+     * the always-on floor). The router sees the recent conversation tail — not just the
+     * latest message — so context-dependent follow-ups ("yes, send it") route against
+     * what came before. Skipped when the set is already small. Any failure — router
+     * error, non-text reply, or a reply naming no recognized group — falls back to all
+     * tools, preserving the pre-Phase-4 behavior.
+     */
+    private suspend fun routeTools(
+        provider: LlmProvider,
+        conversation: List<ChatMessage>,
+        allTools: List<ToolDefinition>,
+    ): List<ToolDefinition> {
+        if (allTools.size <= ROUTER_TOOL_THRESHOLD) return allTools
+        val reply = try {
+            val result = withContext(Dispatchers.IO) {
+                provider.complete(
+                    systemPrompt = AriaPrompts.toolRouterSystemPrompt(),
+                    messages = conversation,
+                    maxTokens = 64,
+                )
+            }
+            (result as? LlmResult.Text)?.content
+        } catch (e: Exception) {
+            Log.w(TAG, "Tool router failed, offering all tools", e)
+            null
+        }
+        val tools = AriaPrompts.toolsForRouterReply(reply, allTools)
+        if (tools.size < allTools.size) {
+            Log.d(TAG, "Tool router trimmed ${allTools.size} tools to ${tools.size}")
+        }
+        return tools
+    }
+
     suspend fun sendMessageStreaming(text: String) {
         _error.value = null
         val userMessage = UiMessage(Role.USER, text)
@@ -431,6 +475,16 @@ class ChatState(
     companion object {
         private const val TAG = "ARIA.Chat"
         private const val MAX_TOOL_ROUNDS = 5
+
+        /**
+         * Only run the tool-router pre-pass when the full tool set exceeds this size.
+         * Below it the extra round-trip costs more than it saves — small models handle
+         * ~10 tools fine.
+         */
+        private const val ROUTER_TOOL_THRESHOLD = 10
+
+        /** How many recent visible turns to hand the router for follow-up context. */
+        private const val ROUTER_CONTEXT_MESSAGES = 4
 
         /** Tools whose results are purely internal LLM context — never shown to the user. */
         private val INTERNAL_TOOLS = setOf(

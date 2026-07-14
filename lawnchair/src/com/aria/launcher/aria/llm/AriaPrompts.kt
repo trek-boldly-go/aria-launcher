@@ -263,11 +263,9 @@ object AriaPrompts {
         ),
         ToolDefinition(
             name = "lookup_contact",
-            description = "Search the user's device contacts by name. Returns matching " +
-                "contacts with their phone numbers and emails. Use this before compose_message, " +
-                "make_call, or send_email when the user refers to a person by name " +
-                "(\"text mom\", \"call Alex\"). Returns an error if the user hasn't enabled " +
-                "contact access in ARIA settings — do NOT retry the same call.",
+            description = "Search device contacts by name; returns phone numbers and emails. " +
+                "Call before compose_message/make_call/send_email when the user names a person. " +
+                "Errors if contact access is off — do NOT retry.",
             inputSchema = mapOf(
                 "properties" to buildJsonObject {
                     putJsonObject("query") {
@@ -280,11 +278,9 @@ object AriaPrompts {
         ),
         ToolDefinition(
             name = "get_calendar_events",
-            description = "Read upcoming events from the user's calendar. " +
-                "Use for any \"what's on my calendar\", \"am I free\", or \"when is my next X\" " +
-                "question. Set days_ahead to whatever covers the question (1=today, 7=this week, " +
-                "30=this month, up to 90). The agent should filter by weekday or other " +
-                "criteria itself after reading the result.",
+            description = "Read upcoming calendar events for \"what's on my calendar\", \"am I " +
+                "free\", or \"when is my next X\". Set days_ahead to cover the question " +
+                "(1=today, 7=this week, up to 90); filter the results yourself.",
             inputSchema = mapOf(
                 "properties" to buildJsonObject {
                     putJsonObject("days_ahead") {
@@ -314,10 +310,9 @@ object AriaPrompts {
         ),
         ToolDefinition(
             name = "list_apps",
-            description = "List the apps the user has installed and that have a launcher icon. " +
-                "Pass an optional query to filter by label or package. Use this when the user " +
-                "refers to an app by description (\"my budget app\", \"open the camera\") and " +
-                "you don't already know the package name. Returns label — package_name pairs.",
+            description = "List installed apps with launcher icons; optional query filters by " +
+                "label or package. Use when the user names an app by description (\"my budget " +
+                "app\") and you don't know its package. Returns label — package_name pairs.",
             inputSchema = mapOf(
                 "properties" to buildJsonObject {
                     putJsonObject("query") {
@@ -401,6 +396,104 @@ object AriaPrompts {
             "required" to kotlinx.serialization.json.JsonArray(emptyList()),
         ),
     )
+
+    /**
+     * Named tool groups, used to shrink the per-request tool set on small models.
+     * A cheap router pre-pass (see [toolRouterSystemPrompt]) picks the groups a user
+     * turn might need; [filterToolsByGroups] then keeps only those tools. Every tool
+     * belongs to exactly one group so nothing becomes permanently unreachable.
+     */
+    val toolGroups: Map<String, List<String>> = mapOf(
+        "communication" to listOf("lookup_contact", "compose_message", "make_call", "send_email"),
+        "calendar" to listOf("get_calendar_events", "create_event"),
+        "web" to listOf("fetch_url", "search_web"),
+        "apps" to listOf("open_app", "list_apps"),
+        "memory" to listOf("remember", "forget"),
+        "media" to listOf("play_music"),
+        "utility" to listOf(
+            "set_reminder",
+            "set_timer",
+            "get_weather",
+            "get_current_location",
+            "take_photo",
+            "share_text",
+            "get_directions",
+        ),
+        "notifications" to listOf("read_notifications"),
+        "skills" to listOf("activate_skill"),
+    )
+
+    /** Groups always kept regardless of routing — the capability floor. */
+    val floorGroups: Set<String> = setOf("apps", "utility")
+
+    /** Groups relevant to the heartbeat/editorial engine when running agentically. */
+    val editorialGroups: Set<String> = setOf("web", "skills", "notifications", "utility", "communication")
+
+    /**
+     * System prompt for the tool-router pre-pass: given a user message, the model
+     * replies with a comma-separated list of the [toolGroups] that might help. Parsed
+     * leniently by [parseToolGroups]; any failure falls back to offering all tools.
+     */
+    fun toolRouterSystemPrompt(): String = """
+        You are a tool router. Read the conversation — especially the latest user message,
+        resolving any follow-up like "yes, send it" against what came before — and decide
+        which tool groups might help.
+        Groups:
+        - communication: contacts, texting, calling, email
+        - calendar: reading or creating calendar events
+        - web: fetching a URL or searching the web
+        - apps: opening or listing installed apps
+        - memory: remembering or forgetting facts about the user
+        - media: playing music
+        - utility: reminders, timers, weather, location, directions, camera, sharing
+        - notifications: reading notification contents
+        - skills: activating an installed skill
+
+        Reply with ONLY a comma-separated list of group names that might help.
+        If unsure, include more groups rather than fewer. No other text.
+    """.trimIndent()
+
+    /**
+     * Lenient parser for the router reply: extracts any known group names, ignoring
+     * punctuation, casing, and surrounding prose. Returns the recognized groups (may
+     * be empty — callers add [floorGroups] and fall back to all tools if nothing useful).
+     */
+    fun parseToolGroups(response: String): Set<String> {
+        val valid = toolGroups.keys
+        return response.lowercase()
+            .split(Regex("[^a-z_]+"))
+            .filter { it in valid }
+            .toSet()
+    }
+
+    /** Keeps only the tools whose names belong to one of [groups]. */
+    fun filterToolsByGroups(
+        tools: List<ToolDefinition>,
+        groups: Set<String>,
+    ): List<ToolDefinition> {
+        val allowed = groups.flatMap { toolGroups[it].orEmpty() }.toSet()
+        return tools.filter { it.name in allowed }
+    }
+
+    /**
+     * Resolves the router pre-pass into the tool set to offer. Falls back to [allTools]
+     * — the pre-Phase-4 behavior — whenever routing can't be trusted: a null [reply]
+     * (router errored or gave a non-text answer), or a reply that names no recognized
+     * group (prose, a refusal, wrong language, empty content). A small model failing to
+     * emit clean group names must not silently strand the user on the floor set. Only
+     * when the reply names at least one real group do we trim to those groups plus the
+     * always-on [floorGroups].
+     */
+    fun toolsForRouterReply(
+        reply: String?,
+        allTools: List<ToolDefinition>,
+    ): List<ToolDefinition> {
+        if (reply == null) return allTools
+        val routed = parseToolGroups(reply)
+        if (routed.isEmpty()) return allTools
+        val filtered = filterToolsByGroups(allTools, routed + floorGroups)
+        return filtered.ifEmpty { allTools }
+    }
 
     /**
      * Builds a dynamic tool list based on what the device can actually do.
@@ -599,9 +692,12 @@ object AriaPrompts {
             return tools
         }
 
-        // Agentic mode: expose all tools that pass the editorial policy filter
+        // Agentic mode: expose the tools that pass the editorial policy filter, then
+        // additionally cap to the groups relevant to the heartbeat so small models
+        // aren't handed the full agentic surface.
         val allTools = buildTools(capabilities, skillNames, notificationContentEnabled)
-        return allTools.filter { EditorialToolPolicy.isOfferedToEditorial(it.name) }
+        val policyFiltered = allTools.filter { EditorialToolPolicy.isOfferedToEditorial(it.name) }
+        return filterToolsByGroups(policyFiltered, editorialGroups)
     }
 
     /** Creates the activate_skill tool definition for the given skill names. */
