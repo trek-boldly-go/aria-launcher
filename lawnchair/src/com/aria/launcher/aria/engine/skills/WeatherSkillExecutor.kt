@@ -1,20 +1,13 @@
 // Copyright (c) 2026 Donovon Simpson. See LICENSE-ARIA.md for licensing terms.
 package com.aria.launcher.aria.engine.skills
 
-import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
 import android.util.Log
-import androidx.core.content.ContextCompat
 import com.aria.launcher.aria.data.AppSkill
-import com.aria.launcher.aria.data.AriaPreferences
+import com.aria.launcher.aria.data.LocationProvider
 import com.aria.launcher.aria.data.SkillAction
 import com.aria.launcher.aria.data.SkillResult
 import com.aria.launcher.aria.engine.SkillExecutor
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
-import com.google.android.gms.tasks.Tasks
-import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -32,10 +25,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 class WeatherSkillExecutor(
-    private val context: Context,
     private val httpClient: OkHttpClient,
     private val json: Json,
-    private val ariaPreferences: AriaPreferences,
+    private val locationProvider: LocationProvider,
 ) : SkillExecutor {
 
     override val supportedSkillIds = setOf("weather.forecast", "weather.alerts")
@@ -48,55 +40,11 @@ class WeatherSkillExecutor(
         }
     }
 
-    private fun getLastLocation(): Pair<Double, Double>? {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
-            != PackageManager.PERMISSION_GRANTED &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            Log.d(TAG, "Location permission not granted")
-            return null
-        }
-
-        val gpsLocation = try {
-            val client = LocationServices.getFusedLocationProviderClient(context)
-            val location = Tasks.await(
-                client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null),
-                10,
-                TimeUnit.SECONDS,
-            )
-            if (location != null) {
-                location.latitude to location.longitude
-            } else {
-                // Fall back to last known location
-                val last = Tasks.await(client.lastLocation, 5, TimeUnit.SECONDS)
-                if (last != null) last.latitude to last.longitude else null
-            }
-        } catch (e: Exception) {
-            Log.d(TAG, "GPS location unavailable, trying saved location", e)
-            null
-        }
-
-        if (gpsLocation != null) return gpsLocation
-
-        // Fallback: use saved location from AriaPreferences (same as WeatherProvider)
-        // Reject if older than 24h — stale locations from travel produce wrong results
-        return try {
-            kotlinx.coroutines.runBlocking {
-                val ts = ariaPreferences.getDefaultLocationTimestamp()
-                val ageMs = System.currentTimeMillis() - ts
-                if (ts > 0 && ageMs > MAX_SAVED_LOCATION_AGE_MS) {
-                    Log.w(TAG, "Saved location is stale (${ageMs / 3_600_000}h old), skipping")
-                    return@runBlocking null
-                }
-                val lat = ariaPreferences.getDefaultLatitude() ?: return@runBlocking null
-                val lng = ariaPreferences.getDefaultLongitude() ?: return@runBlocking null
-                Log.d(TAG, "Using saved location: $lat, $lng")
-                lat to lng
-            }
-        } catch (_: Exception) {
-            null
-        }
+    private fun getLastLocation(): Pair<Double, Double>? = try {
+        runBlocking { locationProvider.getLatLng() }
+    } catch (e: Exception) {
+        Log.d(TAG, "Location unavailable", e)
+        null
     }
 
     private fun executeCurrentWeather(): SkillResult? {
@@ -260,7 +208,6 @@ class WeatherSkillExecutor(
 
     companion object {
         private const val TAG = "ARIA.WeatherSkill"
-        private const val MAX_SAVED_LOCATION_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
 
         private fun weatherCodeToDescription(code: Int): String = when (code) {
             0 -> "Clear"

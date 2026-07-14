@@ -39,6 +39,7 @@ import app.lawnchair.ui.preferences.components.controls.ClickablePreference
 import app.lawnchair.ui.preferences.components.layout.PreferenceGroup
 import app.lawnchair.ui.preferences.components.layout.PreferenceLayout
 import app.lawnchair.ui.preferences.navigation.AriaLlmSetup
+import app.lawnchair.ui.preferences.navigation.AriaMemory
 import app.lawnchair.ui.preferences.navigation.AriaRules
 import com.aria.launcher.aria.data.AriaNotificationListener
 import com.aria.launcher.aria.data.AriaPreferences
@@ -578,12 +579,95 @@ fun AriaSettingsPreferences(
             }
         }
 
+        PreferenceGroup(heading = "Agentic Brief") {
+            val agenticEnabled by prefs.agenticBriefEnabled
+                .collectAsState(initial = false)
+            Item {
+                ClickablePreference(
+                    label = "Agentic Brief",
+                    subtitle = if (agenticEnabled) {
+                        "ARIA can set alarms, get directions, and more autonomously"
+                    } else {
+                        "Brief only curates information — no autonomous actions"
+                    },
+                    onClick = {
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                prefs.setAgenticBriefEnabled(!agenticEnabled)
+                            }
+                            Toast.makeText(
+                                context,
+                                if (!agenticEnabled) "Agentic Brief enabled" else "Agentic Brief disabled",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    },
+                )
+            }
+        }
+
         PreferenceGroup(heading = "Rules") {
             Item {
                 ClickablePreference(
                     label = "ARIA Rules",
                     subtitle = "View and manage rules created from chat",
                     onClick = { navController.navigate(AriaRules) },
+                )
+            }
+        }
+
+        PreferenceGroup(heading = "Memory") {
+            Item {
+                ClickablePreference(
+                    label = "ARIA Memory",
+                    subtitle = "View and delete what ARIA has learned about you",
+                    onClick = { navController.navigate(AriaMemory) },
+                )
+            }
+            val contactsAccess by prefs.contactsAccessEnabled.collectAsState(initial = false)
+            val calendarAccess by prefs.calendarAccessEnabled.collectAsState(initial = false)
+            val locationAccess by prefs.locationAccessEnabled.collectAsState(initial = false)
+            Item {
+                ClickablePreference(
+                    label = "Allow chat agent to look up contacts",
+                    subtitle = if (contactsAccess) {
+                        "Enabled — contact data is sent to your LLM provider"
+                    } else {
+                        "Disabled"
+                    },
+                    onClick = {
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                prefs.setContactsAccessEnabled(!contactsAccess)
+                            }
+                        }
+                    },
+                )
+            }
+            Item {
+                ClickablePreference(
+                    label = "Allow chat agent to read calendar",
+                    subtitle = if (calendarAccess) "Enabled" else "Disabled",
+                    onClick = {
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                prefs.setCalendarAccessEnabled(!calendarAccess)
+                            }
+                        }
+                    },
+                )
+            }
+            Item {
+                ClickablePreference(
+                    label = "Allow chat agent to use location",
+                    subtitle = if (locationAccess) "Enabled" else "Disabled",
+                    onClick = {
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                prefs.setLocationAccessEnabled(!locationAccess)
+                            }
+                        }
+                    },
                 )
             }
         }

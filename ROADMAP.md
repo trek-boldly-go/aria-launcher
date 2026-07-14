@@ -18,6 +18,7 @@
 
 ## Planned
 
+- **Ollama Model Settings** - Support changing the temperature and thinking level (if supported) to the Ollama Provider
 - **Settings reorganization** — Hide irrelevant Lawnchair settings, promote ARIA settings to top-level
 - **Notification filtering for Brief** — Prevent basic and persistent notifications from appearing as Brief cards
 - **Notification dismiss tool** — Allow ARIA to dismiss notifications the user doesn't care to see

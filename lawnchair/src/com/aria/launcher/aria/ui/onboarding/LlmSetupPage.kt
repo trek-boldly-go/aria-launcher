@@ -864,33 +864,89 @@ internal fun ClaudeSetupSubPage(
                 }
             }
         } else {
-            // OAuth / Pro path — blocked by Anthropic for third-party apps
+            // OAuth / Pro path
             Surface(
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                color = MaterialTheme.colorScheme.errorContainer,
                 shape = MaterialTheme.shapes.medium,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Not currently supported",
-                        style = MaterialTheme.typography.titleSmall.copy(
-                            fontWeight = FontWeight.SemiBold,
-                        ),
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Anthropic blocks Claude Pro and Max OAuth tokens from being used in third-party apps. Only the official Claude Code CLI and claude.ai can use subscription-based authentication.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Use the API Key tab instead. You can create a pay-per-use key at console.anthropic.com for as little as a few dollars per month.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                Text(
+                    text = "Work in progress \u2014 OAuth login is experimental and may not work reliably yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(12.dp),
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = "If you have a Claude Pro subscription ($20/mo), you can share your session with ARIA.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                label = { Text("OAuth token") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Button(
+                    onClick = {
+                        if (apiKey.isBlank()) {
+                            Toast.makeText(context, "Enter an OAuth token", Toast.LENGTH_SHORT)
+                                .show()
+                            return@Button
+                        }
+                        isTesting = true
+                        testResult = null
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                llmProviderManager.configureProvider(
+                                    type = ProviderType.CLAUDE_OAUTH,
+                                    apiKey = apiKey,
+                                )
+                            }
+                            testResult = runProviderTest(llmProviderManager)
+                            isTesting = false
+                            if (testResult?.startsWith("Connected") == true) onSuccess()
+                        }
+                    },
+                    shapes = ButtonDefaults.shapes(),
+                    enabled = !isTesting,
+                ) {
+                    Text("Save & Test")
                 }
+                if (isTesting) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "Or scan a QR code from npx aria-token-qr:",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedButton(
+                onClick = onQrScanRequested,
+                modifier = Modifier.fillMaxWidth(),
+                shapes = ButtonDefaults.shapes(),
+            ) {
+                Text("Scan QR Code")
             }
         }
 

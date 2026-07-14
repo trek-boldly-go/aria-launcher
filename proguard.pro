@@ -59,3 +59,12 @@
 
 # TODO: Remove this after the change in https://github.com/ChickenHook/RestrictionBypass/pull/9 has been released.
 -keep class org.chickenhook.restrictionbypass.** { *; }
+
+# Anthropic Java SDK + Jackson (transitive)
+-keep class com.anthropic.** { *; }
+-dontwarn com.anthropic.**
+-keep class com.fasterxml.jackson.** { *; }
+-dontwarn com.fasterxml.jackson.**
+-keepclassmembers class * {
+    @com.fasterxml.jackson.annotation.* *;
+}

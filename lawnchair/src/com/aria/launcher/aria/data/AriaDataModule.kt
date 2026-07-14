@@ -48,4 +48,8 @@ object AriaDataModule {
     @Provides
     @Singleton
     fun provideAppChainDao(db: AriaDatabase): AppChainDao = db.appChainDao()
+
+    @Provides
+    @Singleton
+    fun provideDomainPermissionDao(db: AriaDatabase): DomainPermissionDao = db.domainPermissionDao()
 }

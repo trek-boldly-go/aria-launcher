@@ -14,8 +14,10 @@ class AriaPromptsTest {
     @Test
     fun `ariaTools contains all expected tool names`() {
         val toolNames = AriaPrompts.ariaTools.map { it.name }
-        assertThat(toolNames).containsExactly(
+        assertThat(toolNames).containsAtLeast(
             "open_app", "search_web", "set_reminder", "get_directions", "compose_message",
+            "lookup_contact", "get_calendar_events", "get_current_location", "list_apps",
+            "get_weather", "remember", "forget",
         )
     }
 

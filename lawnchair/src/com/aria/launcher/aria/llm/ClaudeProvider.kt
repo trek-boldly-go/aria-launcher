@@ -1,40 +1,55 @@
 package com.aria.launcher.aria.llm
 
 import android.util.Log
+import com.anthropic.client.AnthropicClient
+import com.anthropic.client.okhttp.AnthropicOkHttpClient
+import com.anthropic.core.JsonValue
+import com.anthropic.errors.UnauthorizedException
+import com.anthropic.models.messages.ContentBlockParam
+import com.anthropic.models.messages.Message
+import com.anthropic.models.messages.MessageCreateParams
+import com.anthropic.models.messages.TextBlockParam
+import com.anthropic.models.messages.Tool
+import com.anthropic.models.messages.ToolResultBlockParam
+import com.anthropic.models.messages.ToolUseBlock
+import com.anthropic.models.messages.ToolUseBlockParam
+import com.fasterxml.jackson.annotation.JsonInclude
+import com.fasterxml.jackson.databind.DeserializationFeature
+import com.fasterxml.jackson.databind.MapperFeature
+import com.fasterxml.jackson.databind.SerializationFeature
+import com.fasterxml.jackson.databind.json.JsonMapper
 import java.io.IOException
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.double
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
+import kotlinx.serialization.json.long
+import kotlinx.serialization.json.longOrNull
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.FormBody
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import okhttp3.sse.EventSource
-import okhttp3.sse.EventSourceListener
-import okhttp3.sse.EventSources
 
 class ClaudeProvider(
     private val client: OkHttpClient,
@@ -53,13 +68,50 @@ class ClaudeProvider(
     private var currentRefreshToken: String? = refreshToken
     private val refreshMutex = Mutex()
 
+    private var anthropicClient: AnthropicClient = buildClient(currentToken)
+
+    private fun buildClient(authToken: String): AnthropicClient {
+        // The SDK's default JsonMapper registers jackson-module-kotlin, which uses
+        // kotlin-reflect at runtime. kotlin-reflect crashes on Android because DEX
+        // strips the Kotlin builtins metadata it needs. We supply our own JsonMapper
+        // without the Kotlin module — the SDK's model classes use @JsonProperty
+        // annotations and builders, so plain Jackson serializes them correctly.
+        // Replicate the SDK's ObjectMappers.jsonMapper() config exactly, minus the
+        // Kotlin module (which would pull in kotlin-reflect and crash on Android).
+        // The SDK disables all auto-detection; its model classes use @JsonProperty
+        // annotations exclusively, so this is safe.
+        val mapper = JsonMapper.builder()
+            .serializationInclusion(JsonInclude.Include.NON_ABSENT)
+            .disable(DeserializationFeature.ADJUST_DATES_TO_CONTEXT_TIME_ZONE)
+            .disable(SerializationFeature.FLUSH_AFTER_WRITE_VALUE)
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+            .disable(SerializationFeature.WRITE_DURATIONS_AS_TIMESTAMPS)
+            .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
+            .disable(MapperFeature.AUTO_DETECT_CREATORS)
+            .disable(MapperFeature.AUTO_DETECT_FIELDS)
+            .disable(MapperFeature.AUTO_DETECT_GETTERS)
+            .disable(MapperFeature.AUTO_DETECT_IS_GETTERS)
+            .disable(MapperFeature.AUTO_DETECT_SETTERS)
+            .build()
+
+        val builder = AnthropicOkHttpClient.builder()
+            .jsonMapper(mapper)
+        if (isOAuthToken) {
+            builder.authToken(authToken)
+            builder.putHeader("anthropic-beta", "oauth-2025-04-20")
+        } else {
+            builder.apiKey(authToken)
+        }
+        return builder.build()
+    }
+
     override suspend fun complete(
         systemPrompt: String,
         messages: List<ChatMessage>,
         maxTokens: Int,
     ): LlmResult = withContext(Dispatchers.IO) {
-        val body = buildRequestBody(systemPrompt, messages, maxTokens)
-        executeWithRetry(body)
+        val params = buildParams(systemPrompt, messages, maxTokens)
+        executeWithRetry(params)
     }
 
     override fun streamComplete(
@@ -67,34 +119,25 @@ class ClaudeProvider(
         messages: List<ChatMessage>,
         maxTokens: Int,
     ): Flow<String> = callbackFlow {
-        val body = buildRequestBody(systemPrompt, messages, maxTokens, stream = true)
-        val request = buildRequest(body)
-
-        val listener = object : EventSourceListener() {
-            override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
-                if (type == "content_block_delta") {
-                    try {
-                        val parsed = json.parseToJsonElement(data).jsonObject
-                        val delta = parsed["delta"]?.jsonObject
-                        val text = delta?.get("text")?.jsonPrimitive?.contentOrNull
-                        if (text != null) trySend(text)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to parse SSE delta", e)
+        val params = buildParams(systemPrompt, messages, maxTokens)
+        val job = launch(Dispatchers.IO) {
+            try {
+                anthropicClient.messages().createStreaming(params).use { stream ->
+                    stream.stream().forEach { event ->
+                        event.contentBlockDelta().ifPresent { deltaEvent ->
+                            val delta = deltaEvent.delta()
+                            if (delta.isText()) {
+                                trySend(delta.asText().text())
+                            }
+                        }
                     }
-                } else if (type == "message_stop") {
-                    close()
                 }
-            }
-
-            override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
-                close(t ?: IOException("SSE connection failed: ${response?.code}"))
+                close()
+            } catch (e: Exception) {
+                close(e)
             }
         }
-
-        val eventSource = EventSources.createFactory(client)
-            .newEventSource(request, listener)
-
-        awaitClose { eventSource.cancel() }
+        awaitClose { job.cancel() }
     }
 
     override suspend fun completeWithTools(
@@ -103,113 +146,146 @@ class ClaudeProvider(
         tools: List<ToolDefinition>,
         maxTokens: Int,
     ): LlmResult = withContext(Dispatchers.IO) {
-        val body = buildRequestBody(systemPrompt, messages, maxTokens, tools = tools)
-        executeWithRetry(body)
+        val params = buildParams(systemPrompt, messages, maxTokens, tools)
+        executeWithRetry(params)
     }
 
-    private fun buildRequestBody(
+    private fun buildParams(
         systemPrompt: String,
         messages: List<ChatMessage>,
         maxTokens: Int,
-        stream: Boolean = false,
         tools: List<ToolDefinition>? = null,
-    ): String {
-        val jsonBody = buildJsonObject {
-            put("model", modelId)
-            put("max_tokens", maxTokens)
-            put("system", systemPrompt)
-            if (stream) put("stream", true)
+    ): MessageCreateParams {
+        val builder = MessageCreateParams.builder()
+            .model(modelId)
+            .maxTokens(maxTokens.toLong())
+            .system(systemPrompt)
 
-            putJsonArray("messages") {
-                for (msg in messages) {
-                    val role = when (msg.role) {
-                        Role.ASSISTANT -> "assistant"
-
-                        Role.TOOL -> "user"
-
-                        // Tool results sent as user messages in Claude API
-                        else -> "user"
-                    }
-                    add(
-                        buildJsonObject {
-                            put("role", role)
-                            put("content", msg.content)
-                        },
-                    )
-                }
-            }
-
-            if (tools != null) {
-                putJsonArray("tools") {
-                    for (tool in tools) {
-                        add(
-                            buildJsonObject {
-                                put("name", tool.name)
-                                put("description", tool.description)
-                                putJsonObject("input_schema") {
-                                    put("type", "object")
-                                    for ((key, value) in tool.inputSchema) {
-                                        put(key, value)
-                                    }
-                                }
-                            },
+        // Coalesce consecutive TOOL results into a single user message: the Anthropic
+        // REST API only accepts "user"/"assistant" roles, and multiple tool_result
+        // blocks from one assistant turn must ride in the same user message.
+        var i = 0
+        while (i < messages.size) {
+            val msg = messages[i]
+            when (msg.role) {
+                Role.TOOL -> {
+                    val blocks = mutableListOf<ContentBlockParam>()
+                    while (i < messages.size && messages[i].role == Role.TOOL) {
+                        val toolMsg = messages[i]
+                        blocks.add(
+                            ContentBlockParam.ofToolResult(
+                                ToolResultBlockParam.builder()
+                                    .toolUseId(toolMsg.toolCallId ?: "")
+                                    .content(toolMsg.content)
+                                    .build(),
+                            ),
                         )
+                        i++
                     }
+                    builder.addUserMessageOfBlockParams(blocks)
+                }
+
+                Role.ASSISTANT -> {
+                    if (msg.toolCalls.isEmpty()) {
+                        builder.addAssistantMessage(msg.content)
+                    } else {
+                        val blocks = mutableListOf<ContentBlockParam>()
+                        if (msg.content.isNotBlank()) {
+                            blocks.add(
+                                ContentBlockParam.ofText(
+                                    TextBlockParam.builder().text(msg.content).build(),
+                                ),
+                            )
+                        }
+                        for (call in msg.toolCalls) {
+                            val inputBuilder = ToolUseBlockParam.Input.builder()
+                            for ((key, value) in call.arguments) {
+                                inputBuilder.putAdditionalProperty(key, JsonValue.from(jsonElementToNative(value)))
+                            }
+                            blocks.add(
+                                ContentBlockParam.ofToolUse(
+                                    ToolUseBlockParam.builder()
+                                        .id(call.id)
+                                        .name(call.name)
+                                        .input(inputBuilder.build())
+                                        .build(),
+                                ),
+                            )
+                        }
+                        builder.addAssistantMessageOfBlockParams(blocks)
+                    }
+                    i++
+                }
+
+                else -> {
+                    builder.addUserMessage(msg.content)
+                    i++
                 }
             }
         }
-        return json.encodeToString(JsonObject.serializer(), jsonBody)
-    }
 
-    private fun buildRequest(body: String): Request {
-        val builder = Request.Builder()
-            .url(API_URL)
-            .post(body.toRequestBody(JSON_MEDIA_TYPE))
-            .header("anthropic-version", API_VERSION)
-            .header("content-type", "application/json")
-
-        if (isOAuthToken) {
-            builder.header("Authorization", "Bearer $currentToken")
-            builder.header("anthropic-beta", OAUTH_BETA_HEADER)
-        } else {
-            builder.header("x-api-key", currentToken)
+        if (tools != null) {
+            for (tool in tools) {
+                builder.addTool(mapTool(tool))
+            }
         }
 
         return builder.build()
     }
 
-    private fun parseResponse(responseBody: String): LlmResult {
-        return try {
-            val parsed = json.parseToJsonElement(responseBody).jsonObject
-            val content = parsed["content"]?.jsonArray ?: return LlmResult.Error("No content in response")
+    private fun mapTool(tool: ToolDefinition): Tool {
+        val propsBuilder = Tool.InputSchema.Properties.builder()
+        val schema = tool.inputSchema
 
-            val textParts = mutableListOf<String>()
-            val toolCalls = mutableListOf<ToolCall>()
-
-            for (block in content) {
-                val obj = block.jsonObject
-                when (obj["type"]?.jsonPrimitive?.contentOrNull) {
-                    "text" -> {
-                        obj["text"]?.jsonPrimitive?.contentOrNull?.let { textParts.add(it) }
-                    }
-
-                    "tool_use" -> {
-                        val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: ""
-                        val name = obj["name"]?.jsonPrimitive?.contentOrNull ?: ""
-                        val input = obj["input"]?.jsonObject ?: JsonObject(emptyMap())
-                        toolCalls.add(ToolCall(id, name, input))
-                    }
-                }
+        val properties = schema["properties"]
+        if (properties is JsonObject) {
+            for ((key, value) in properties) {
+                propsBuilder.putAdditionalProperty(key, JsonValue.from(jsonElementToNative(value)))
             }
+        }
 
-            val text = textParts.joinToString("")
-            if (toolCalls.isNotEmpty()) {
-                LlmResult.ToolUse(text, toolCalls)
-            } else {
-                LlmResult.Text(text)
+        val schemaBuilder = Tool.InputSchema.builder()
+            .properties(propsBuilder.build())
+
+        val required = schema["required"]
+        if (required is JsonArray) {
+            for (item in required) {
+                val name = (item as? JsonPrimitive)?.contentOrNull
+                if (name != null) schemaBuilder.addRequired(name)
             }
-        } catch (e: Exception) {
-            LlmResult.Error("Failed to parse response: ${e.message}", e)
+        }
+
+        return Tool.builder()
+            .name(tool.name)
+            .description(tool.description)
+            .inputSchema(schemaBuilder.build())
+            .build()
+    }
+
+    private fun parseResponse(message: Message): LlmResult {
+        val textParts = mutableListOf<String>()
+        val toolCalls = mutableListOf<ToolCall>()
+
+        for (block in message.content()) {
+            if (block.isText()) {
+                textParts.add(block.asText().text())
+            } else if (block.isToolUse()) {
+                val toolUse: ToolUseBlock = block.asToolUse()
+                toolCalls.add(
+                    ToolCall(
+                        id = toolUse.id(),
+                        name = toolUse.name(),
+                        arguments = jacksonToJsonElementMap(toolUse._input()),
+                    ),
+                )
+            }
+        }
+
+        val text = textParts.joinToString("")
+        return if (toolCalls.isNotEmpty()) {
+            LlmResult.ToolUse(text, toolCalls)
+        } else {
+            LlmResult.Text(text)
         }
     }
 
@@ -239,6 +315,7 @@ class ClaudeProvider(
                 val newRefresh = parsed["refresh_token"]?.jsonPrimitive?.contentOrNull
                 currentToken = newToken
                 if (newRefresh != null) currentRefreshToken = newRefresh
+                anthropicClient = buildClient(newToken)
                 onTokenRefreshed?.invoke(newToken, newRefresh ?: refresh)
                 Log.d(TAG, "OAuth token refreshed successfully")
                 true
@@ -249,48 +326,80 @@ class ClaudeProvider(
         }
     }
 
-    private suspend fun executeWithRetry(body: String): LlmResult {
-        val request = buildRequest(body)
+    private suspend fun executeWithRetry(params: MessageCreateParams): LlmResult {
         return try {
-            val response = client.newCall(request).await()
-            val responseBody = response.body?.string()
-                ?: return LlmResult.Error("Empty response")
-            if (response.code == 401 && isOAuthToken) {
+            val message = anthropicClient.messages().create(params)
+            parseResponse(message)
+        } catch (e: UnauthorizedException) {
+            if (isOAuthToken) {
                 Log.d(TAG, "Got 401, attempting OAuth token refresh")
                 if (refreshOAuthToken()) {
-                    val retryRequest = buildRequest(body)
-                    val retryResponse = client.newCall(retryRequest).await()
-                    val retryBody = retryResponse.body?.string()
-                        ?: return LlmResult.Error("Empty response on retry")
-                    if (!retryResponse.isSuccessful) {
-                        Log.e(TAG, "Retry failed ${retryResponse.code}: $retryBody")
-                        return LlmResult.Error("HTTP ${retryResponse.code}: $retryBody")
+                    return try {
+                        val message = anthropicClient.messages().create(params)
+                        parseResponse(message)
+                    } catch (retryEx: Exception) {
+                        Log.e(TAG, "Retry after refresh failed", retryEx)
+                        LlmResult.Error("Retry failed: ${retryEx.message}", retryEx)
                     }
-                    return parseResponse(retryBody)
                 }
-                return LlmResult.Error("HTTP 401: Token expired and refresh failed")
+                LlmResult.Error("HTTP 401: Token expired and refresh failed")
+            } else {
+                LlmResult.Error("HTTP 401: Invalid API key", e)
             }
-            if (!response.isSuccessful) {
-                Log.e(TAG, "API error ${response.code}: $responseBody")
-                return LlmResult.Error("HTTP ${response.code}: $responseBody")
-            }
-            parseResponse(responseBody)
         } catch (e: IOException) {
             LlmResult.Error("Network error: ${e.message}", e)
+        } catch (e: Exception) {
+            LlmResult.Error("API error: ${e.message}", e)
         }
     }
 
     companion object {
         private const val TAG = "ARIA.Claude"
-        private const val API_URL = "https://api.anthropic.com/v1/messages"
-        private const val API_VERSION = "2023-06-01"
         private const val TOKEN_REFRESH_URL = "https://platform.claude.com/v1/oauth/token"
         private const val OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
         private const val OAUTH_SCOPES = "user:inference user:profile"
-        private const val OAUTH_BETA_HEADER = "oauth-2025-04-20"
         private const val DEFAULT_MODEL = "claude-sonnet-4-20250514"
-        private val JSON_MEDIA_TYPE = "application/json".toMediaType()
     }
+}
+
+private fun jsonElementToNative(element: JsonElement): Any? = when (element) {
+    is JsonNull -> null
+
+    is JsonPrimitive -> when {
+        // Check isString first: kotlinx evaluates boolean/long/doubleOrNull on the raw
+        // content text regardless of quoting, so a quoted "07030" or "true" would otherwise
+        // be coerced to a number/boolean (dropping the leading zero, changing the type).
+        element.isString -> element.content
+
+        element.booleanOrNull != null -> element.boolean
+
+        element.longOrNull != null -> element.long
+
+        element.doubleOrNull != null -> element.double
+
+        else -> element.contentOrNull
+    }
+
+    is JsonArray -> element.map { jsonElementToNative(it) }
+
+    is JsonObject -> element.mapValues { (_, v) -> jsonElementToNative(v) }
+}
+
+private fun jacksonToJsonElement(value: JsonValue): JsonElement {
+    return value.accept(object : JsonValue.Visitor<JsonElement> {
+        override fun visitNull() = JsonNull
+        override fun visitBoolean(value: Boolean) = JsonPrimitive(value)
+        override fun visitNumber(value: Number) = JsonPrimitive(value)
+        override fun visitString(value: String) = JsonPrimitive(value)
+        override fun visitArray(values: List<JsonValue>) = JsonArray(values.map { jacksonToJsonElement(it) })
+        override fun visitObject(values: Map<String, JsonValue>) = JsonObject(values.mapValues { (_, v) -> jacksonToJsonElement(v) })
+        override fun visitMissing() = JsonNull
+    })
+}
+
+private fun jacksonToJsonElementMap(value: JsonValue): Map<String, JsonElement> {
+    val element = jacksonToJsonElement(value)
+    return if (element is JsonObject) element.toMap() else emptyMap()
 }
 
 private suspend fun Call.await(): Response = suspendCancellableCoroutine { cont ->

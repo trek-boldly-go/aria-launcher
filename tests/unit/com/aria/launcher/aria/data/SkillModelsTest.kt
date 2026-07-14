@@ -20,6 +20,7 @@ class SkillModelsTest {
                 SkillSourceType.INTENT,
                 SkillSourceType.MCP,
                 SkillSourceType.ACCESSIBILITY,
+                SkillSourceType.EXTERNAL_HTTP,
             )
     }
 

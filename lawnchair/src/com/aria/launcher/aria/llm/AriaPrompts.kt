@@ -3,6 +3,7 @@ package com.aria.launcher.aria.llm
 import com.aria.launcher.aria.data.ContextSignalManager
 import com.aria.launcher.aria.engine.ContextKey
 import com.aria.launcher.aria.engine.DeviceCapabilityCatalog
+import com.aria.launcher.aria.engine.EditorialToolPolicy
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -61,9 +62,9 @@ object AriaPrompts {
             ""
         }
         return """
-            You are ARIA, an AI assistant embedded in the user's Android home screen launcher.
-            You are proactive, concise, and context-aware. You surface information the user needs
-            before they ask for it.
+            You are ARIA, the user's personal assistant living inside their Android home screen.
+            You speak like a knowledgeable friend — warm, direct, and concise. You have opinions
+            and you're not afraid to make a recommendation. You're always one step ahead.
 
             Current context:
             - Time: $now
@@ -80,13 +81,13 @@ object AriaPrompts {
             $activitiesSection
             $skillsSection
             Guidelines:
+            - Talk like a person, not a system. "I pulled up directions" not "Directions have been retrieved."
             - Keep responses concise: 1-3 sentences unless the user asks for more.
             - When taking actions, use the provided tools rather than describing what to do.
-            - Prioritize actionable information over generic responses.
             - Be aware of time of day and user context when making suggestions.
-            - You are in an interactive chat on the user's home screen.
-            - After using a tool, briefly confirm the action was taken.
+            - After using a tool, briefly confirm what you did in a natural way.
             - Use what you know about this user to personalize your responses, but don't mention it unprompted.
+            - You can be playful when the moment fits, but never waste the user's time.
         """.trimIndent()
     }
 
@@ -258,6 +259,124 @@ object AriaPrompts {
                 "required" to kotlinx.serialization.json.JsonArray(
                     listOf(JsonPrimitive("contact"), JsonPrimitive("message")),
                 ),
+            ),
+        ),
+        ToolDefinition(
+            name = "lookup_contact",
+            description = "Search the user's device contacts by name. Returns matching " +
+                "contacts with their phone numbers and emails. Use this before compose_message, " +
+                "make_call, or send_email when the user refers to a person by name " +
+                "(\"text mom\", \"call Alex\"). Returns an error if the user hasn't enabled " +
+                "contact access in ARIA settings — do NOT retry the same call.",
+            inputSchema = mapOf(
+                "properties" to buildJsonObject {
+                    putJsonObject("query") {
+                        put("type", "string")
+                        put("description", "Name or partial name to search for")
+                    }
+                },
+                "required" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("query"))),
+            ),
+        ),
+        ToolDefinition(
+            name = "get_calendar_events",
+            description = "Read upcoming events from the user's calendar. " +
+                "Use for any \"what's on my calendar\", \"am I free\", or \"when is my next X\" " +
+                "question. Set days_ahead to whatever covers the question (1=today, 7=this week, " +
+                "30=this month, up to 90). The agent should filter by weekday or other " +
+                "criteria itself after reading the result.",
+            inputSchema = mapOf(
+                "properties" to buildJsonObject {
+                    putJsonObject("days_ahead") {
+                        put("type", "integer")
+                        put(
+                            "description",
+                            "How many days into the future to look. 1–90. Defaults to 7.",
+                        )
+                    }
+                    putJsonObject("max_results") {
+                        put("type", "integer")
+                        put("description", "Maximum events to return. 1–100. Defaults to 30.")
+                    }
+                },
+                "required" to kotlinx.serialization.json.JsonArray(emptyList()),
+            ),
+        ),
+        ToolDefinition(
+            name = "get_current_location",
+            description = "Returns the user's current GPS location as latitude/longitude with a " +
+                "human-readable label (city or locality) when available. Cached for 60 seconds " +
+                "to avoid GPS spam.",
+            inputSchema = mapOf(
+                "properties" to buildJsonObject {},
+                "required" to kotlinx.serialization.json.JsonArray(emptyList()),
+            ),
+        ),
+        ToolDefinition(
+            name = "list_apps",
+            description = "List the apps the user has installed and that have a launcher icon. " +
+                "Pass an optional query to filter by label or package. Use this when the user " +
+                "refers to an app by description (\"my budget app\", \"open the camera\") and " +
+                "you don't already know the package name. Returns label — package_name pairs.",
+            inputSchema = mapOf(
+                "properties" to buildJsonObject {
+                    putJsonObject("query") {
+                        put("type", "string")
+                        put(
+                            "description",
+                            "Optional: substring to filter apps by label or package name",
+                        )
+                    }
+                },
+                "required" to kotlinx.serialization.json.JsonArray(emptyList()),
+            ),
+        ),
+        ToolDefinition(
+            name = "get_weather",
+            description = "Get the current weather snapshot for the user's location " +
+                "(temperature, conditions, wind). Use for any direct weather question.",
+            inputSchema = mapOf(
+                "properties" to buildJsonObject {},
+                "required" to kotlinx.serialization.json.JsonArray(emptyList()),
+            ),
+        ),
+        ToolDefinition(
+            name = "remember",
+            description = "Store a long-term fact about the user so future conversations can " +
+                "reference it. Use ONLY for durable, non-trivial facts the user has explicitly " +
+                "shared (preferences, allergies, important people/places, routines). Do NOT " +
+                "call this for ephemeral context. Categories: preference, routine, person, " +
+                "place, general.",
+            inputSchema = mapOf(
+                "properties" to buildJsonObject {
+                    putJsonObject("fact") {
+                        put("type", "string")
+                        put("description", "The fact to remember (5–300 characters)")
+                    }
+                    putJsonObject("category") {
+                        put("type", "string")
+                        put(
+                            "description",
+                            "One of: preference, routine, person, place, general. Defaults to general.",
+                        )
+                    }
+                },
+                "required" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("fact"))),
+            ),
+        ),
+        ToolDefinition(
+            name = "forget",
+            description = "Find a stored memory matching the query and ask the user to confirm " +
+                "deletion. The user must reply \"yes\" before the memory is actually deleted. " +
+                "Use when the user asks ARIA to forget something (\"forget that I like coffee\").",
+            inputSchema = mapOf(
+                "properties" to buildJsonObject {
+                    putJsonObject("query") {
+                        put("type", "string")
+                        put("description", "Words from the fact you want to delete")
+                    }
+                },
+                "required" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("query"))),
             ),
         ),
     )
@@ -454,21 +573,35 @@ object AriaPrompts {
     }
 
     /**
-     * Builds the minimal tool set for the editorial engine (heartbeat).
-     * Only includes fetch_url and optionally activate_skill — not the full device tool set.
+     * Builds the tool set for the editorial engine (heartbeat).
+     *
+     * When [agenticMode] is false (default), only includes fetch_url, activate_skill,
+     * and read_notifications — the original restricted set.
+     *
+     * When [agenticMode] is true, includes all tools where
+     * [EditorialToolPolicy.isOfferedToEditorial] returns true, filtered by device
+     * capabilities. This expands the editorial engine to act on behalf of the user.
      */
     fun buildEditorialTools(
         skillNames: List<String>,
         notificationContentEnabled: Boolean = false,
+        agenticMode: Boolean = false,
+        capabilities: List<DeviceCapabilityCatalog.AppCapability> = emptyList(),
     ): List<ToolDefinition> {
-        val tools = mutableListOf(coreTools.first { it.name == "fetch_url" })
-        if (skillNames.isNotEmpty()) {
-            tools.add(buildActivateSkillTool(skillNames))
+        if (!agenticMode) {
+            val tools = mutableListOf(coreTools.first { it.name == "fetch_url" })
+            if (skillNames.isNotEmpty()) {
+                tools.add(buildActivateSkillTool(skillNames))
+            }
+            if (notificationContentEnabled) {
+                tools.add(readNotificationsTool)
+            }
+            return tools
         }
-        if (notificationContentEnabled) {
-            tools.add(readNotificationsTool)
-        }
-        return tools
+
+        // Agentic mode: expose all tools that pass the editorial policy filter
+        val allTools = buildTools(capabilities, skillNames, notificationContentEnabled)
+        return allTools.filter { EditorialToolPolicy.isOfferedToEditorial(it.name) }
     }
 
     /** Creates the activate_skill tool definition for the given skill names. */

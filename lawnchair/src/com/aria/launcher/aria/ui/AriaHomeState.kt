@@ -4,7 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
+import android.net.Uri
 import android.util.Log
+import com.aria.launcher.aria.chat.ToolExecutor
 import com.aria.launcher.aria.data.ActiveNotificationCache
 import com.aria.launcher.aria.data.AppChain
 import com.aria.launcher.aria.data.AppChainDao
@@ -12,11 +14,14 @@ import com.aria.launcher.aria.data.AppPrediction
 import com.aria.launcher.aria.data.AriaNotificationListener
 import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.data.ContextSignalManager
+import com.aria.launcher.aria.data.DomainPermission
+import com.aria.launcher.aria.data.DomainPermissionDao
 import com.aria.launcher.aria.data.SkillDao
 import com.aria.launcher.aria.data.SkillResult
 import com.aria.launcher.aria.data.UsageDataRepository
 import com.aria.launcher.aria.data.UsageStatsCollector
 import com.aria.launcher.aria.data.WeatherProvider
+import com.aria.launcher.aria.engine.AppLabelResolver
 import com.aria.launcher.aria.engine.AriaContext
 import com.aria.launcher.aria.engine.AriaContextMonitor
 import com.aria.launcher.aria.engine.ContextKey
@@ -27,6 +32,9 @@ import com.aria.launcher.aria.engine.SkillOrchestrator
 import com.aria.launcher.aria.engine.TimeBucket
 import com.aria.launcher.aria.engine.rules.RuleAction
 import com.aria.launcher.aria.engine.rules.SurfacePriority
+import com.aria.launcher.aria.engine.skills.AgentSkillManager
+import com.aria.launcher.aria.llm.AriaLlmClient
+import com.aria.launcher.aria.llm.ToolCall
 import com.aria.launcher.aria.ui.brief.BriefAction
 import com.aria.launcher.aria.ui.brief.BriefAggregator
 import com.aria.launcher.aria.ui.brief.BriefItem
@@ -53,6 +61,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.OkHttpClient
 
 data class PredictedApp(
     val packageName: String,
@@ -85,6 +98,11 @@ class AriaHomeState @Inject constructor(
     private val weatherProvider: WeatherProvider,
     private val notificationCache: ActiveNotificationCache,
     private val skillDao: SkillDao,
+    private val domainPermissionDao: DomainPermissionDao,
+    private val agentSkillManager: AgentSkillManager,
+    private val appLabelResolver: AppLabelResolver,
+    private val json: Json,
+    @AriaLlmClient private val httpClient: OkHttpClient,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val pm: PackageManager = appContext.packageManager
@@ -199,6 +217,8 @@ class AriaHomeState @Inject constructor(
             _briefItems.value = filtered
             _contextBar.value = buildContextBar(context)
             Log.d(TAG, "Brief refreshed: ${filtered.size} items")
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            // Normal: a newer refresh superseded this one. Don't log.
         } catch (e: Exception) {
             Log.w(TAG, "Brief refresh failed", e)
         }
@@ -255,13 +275,20 @@ class AriaHomeState @Inject constructor(
         }
     }
 
-    /** Execute a BriefAction — handles intentUri launches and MCP tool calls (Session 9+). */
+    /** Execute a BriefAction — handles intentUri launches, confirmations, and MCP tool calls. */
     fun executeAction(action: com.aria.launcher.aria.ui.brief.BriefAction) {
         Log.d(TAG, "executeAction: label=${action.label} intentUri=${action.intentUri}")
         val uri = action.intentUri ?: run {
             Log.w(TAG, "executeAction: intentUri is null for action '${action.label}', ignoring")
             return
         }
+
+        // Handle agentic confirmation URIs
+        if (uri.startsWith("aria://confirm/")) {
+            handleConfirmationAction(uri, action)
+            return
+        }
+
         try {
             val intent = if (uri.startsWith("package:")) {
                 val pkg = uri.removePrefix("package:")
@@ -281,6 +308,116 @@ class AriaHomeState @Inject constructor(
         } catch (e: Exception) {
             Log.w(TAG, "Failed to execute brief action: ${action.label}", e)
         }
+    }
+
+    /**
+     * Handles aria://confirm/ URIs from agentic ConfirmationRequest cards.
+     * Finds the matching ConfirmationRequest card, deserializes its tool call,
+     * and processes based on the action type (approve/always/dismiss).
+     */
+    private fun handleConfirmationAction(uri: String, action: BriefAction) {
+        // URI shape is aria://confirm/<action>/<cardToken>; the token makes each card's
+        // URIs unique so the exact-match lookup below targets the tapped card.
+        val actionType = uri.removePrefix("aria://confirm/").substringBefore("/")
+        val confirmCard = _briefItems.value.filterIsInstance<BriefItem.ConfirmationRequest>()
+            .firstOrNull { card -> card.actions.any { it.intentUri == uri } }
+
+        if (confirmCard == null) {
+            Log.w(TAG, "No matching ConfirmationRequest card for $uri")
+            return
+        }
+
+        when (actionType) {
+            "dismiss" -> {
+                dismissItem(confirmCard)
+            }
+
+            "approve", "always" -> {
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val toolCall = deserializeToolCall(confirmCard.pendingToolCallJson)
+                        if (toolCall == null) {
+                            Log.w(TAG, "Failed to deserialize tool call from confirmation card")
+                            return@launch
+                        }
+
+                        // For "always", save the domain permission first
+                        if (actionType == "always" && toolCall.name == "fetch_url") {
+                            saveDomainPermission(toolCall)
+                        }
+
+                        // Execute the tool
+                        val toolExecutor = ToolExecutor(
+                            context = appContext,
+                            httpClient = httpClient,
+                            agentSkillManager = agentSkillManager,
+                            appLabelResolver = appLabelResolver,
+                        )
+                        val result = toolExecutor.execute(toolCall)
+                        Log.d(TAG, "Confirmation approved: ${toolCall.name} → ${result.success}")
+
+                        // Replace the confirmation card with an action report
+                        _briefItems.update { items ->
+                            items.map { item ->
+                                if (item.stableKey() == confirmCard.stableKey()) {
+                                    BriefItem.ActionReport(
+                                        icon = confirmCard.icon,
+                                        headline = result.result.take(60),
+                                        subtext = null,
+                                        toolName = toolCall.name,
+                                        action = null,
+                                    )
+                                } else {
+                                    item
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Confirmation execution failed", e)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun deserializeToolCall(jsonString: String): ToolCall? {
+        return try {
+            val obj = json.parseToJsonElement(jsonString).jsonObject
+            val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: return null
+            val name = obj["name"]?.jsonPrimitive?.contentOrNull ?: return null
+            val arguments = obj["arguments"]?.jsonObject?.toMap() ?: emptyMap()
+            ToolCall(id = id, name = name, arguments = arguments)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse tool call JSON", e)
+            null
+        }
+    }
+
+    private suspend fun saveDomainPermission(toolCall: ToolCall) {
+        val url = toolCall.arguments["url"]?.jsonPrimitive?.contentOrNull ?: return
+        val method = toolCall.arguments["method"]?.jsonPrimitive?.contentOrNull?.uppercase() ?: "GET"
+        val domain = try {
+            Uri.parse(url).host?.lowercase() ?: return
+        } catch (_: Exception) {
+            return
+        }
+
+        val existing = domainPermissionDao.findByDomain(domain)
+        val methods = if (existing != null) {
+            val current = existing.allowedMethods.split(",").map { it.trim().uppercase() }.toSet()
+            (current + method).joinToString(",")
+        } else {
+            method
+        }
+
+        domainPermissionDao.insert(
+            DomainPermission(
+                domain = domain,
+                allowedMethods = methods,
+                createdAt = System.currentTimeMillis(),
+            ),
+        )
+        Log.d(TAG, "Saved domain permission: $domain → $methods")
     }
 
     private suspend fun buildContextBar(context: AriaContext): BriefItem.ContextBar {

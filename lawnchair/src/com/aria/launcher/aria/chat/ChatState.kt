@@ -4,9 +4,12 @@ package com.aria.launcher.aria.chat
 import android.content.Context
 import android.util.Log
 import com.aria.launcher.aria.data.AriaPreferences
+import com.aria.launcher.aria.data.CalendarEventProvider
+import com.aria.launcher.aria.data.ContactsRepository
 import com.aria.launcher.aria.data.ContextSignalManager
-import com.aria.launcher.aria.data.UserMemory
-import com.aria.launcher.aria.data.UserMemoryDao
+import com.aria.launcher.aria.data.LocationProvider
+import com.aria.launcher.aria.data.MemoryRepository
+import com.aria.launcher.aria.data.WeatherProvider
 import com.aria.launcher.aria.engine.AppActivityCatalog
 import com.aria.launcher.aria.engine.AppLabelResolver
 import com.aria.launcher.aria.engine.ContextKey
@@ -22,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 
@@ -37,7 +41,7 @@ class ChatState(
     private val context: Context,
     private val llmProviderManager: LlmProviderManager,
     private val contextSignalManager: ContextSignalManager,
-    private val userMemoryDao: UserMemoryDao,
+    private val memoryRepo: MemoryRepository,
     private val ariaPreferences: AriaPreferences,
     private val ariaChatHandler: AriaChatHandler,
     private val capabilityCatalog: DeviceCapabilityCatalog,
@@ -45,6 +49,10 @@ class ChatState(
     private val httpClient: OkHttpClient,
     private val agentSkillManager: AgentSkillManager,
     private val appLabelResolver: AppLabelResolver,
+    private val contactsRepository: ContactsRepository,
+    private val calendarEventProvider: CalendarEventProvider,
+    private val weatherProvider: WeatherProvider,
+    private val locationProvider: LocationProvider,
 ) {
     private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
     val messages: StateFlow<List<UiMessage>> = _messages.asStateFlow()
@@ -63,8 +71,26 @@ class ChatState(
         httpClient = httpClient,
         agentSkillManager = agentSkillManager,
         appLabelResolver = appLabelResolver,
+        contactsRepository = contactsRepository,
+        calendarEventProvider = calendarEventProvider,
+        weatherProvider = weatherProvider,
+        locationProvider = locationProvider,
+        memoryRepository = memoryRepo,
+        appActivityCatalog = appActivityCatalog,
         isNotificationContentEnabled = {
-            kotlinx.coroutines.runBlocking { ariaPreferences.notificationContentEnabled.first() }
+            runBlocking { ariaPreferences.notificationContentEnabled.first() }
+        },
+        isContactsAccessEnabled = {
+            runBlocking { ariaPreferences.contactsAccessEnabled.first() }
+        },
+        isCalendarAccessEnabled = {
+            runBlocking { ariaPreferences.calendarAccessEnabled.first() }
+        },
+        isLocationAccessEnabled = {
+            runBlocking { ariaPreferences.locationAccessEnabled.first() }
+        },
+        startForgetConfirmation = { memory ->
+            pendingConfirmation = ConfirmationAction.ForgetMemory(memory.id, memory.fact)
         },
     )
 
@@ -101,16 +127,39 @@ class ChatState(
             val pendingAction = pendingConfirmation
             if (pendingAction != null) {
                 val lowerText = text.trim().lowercase()
-                if (lowerText.startsWith("yes") || lowerText == "y" || lowerText.contains("save it")) {
+                // Affirmative phrasing is action-specific: "save it" confirms only a
+                // rule save, "forget it" confirms only a memory deletion. Otherwise
+                // "forget it" (a user discarding a proposed rule) would be read as
+                // approval and save the rule.
+                val isAffirmative = lowerText.startsWith("yes") || lowerText == "y" ||
+                    (pendingAction is ConfirmationAction.SaveRule && lowerText.contains("save it")) ||
+                    (pendingAction is ConfirmationAction.ForgetMemory && lowerText.contains("forget it"))
+                val isNegative = lowerText.startsWith("no") || lowerText == "n" ||
+                    (pendingAction is ConfirmationAction.SaveRule && lowerText.contains("forget it"))
+                if (isAffirmative) {
                     pendingConfirmation = null
-                    val response = when (pendingAction) {
-                        is ConfirmationAction.SaveRule -> ariaChatHandler.confirmSaveRule(pendingAction.rule)
+                    when (pendingAction) {
+                        is ConfirmationAction.SaveRule -> {
+                            val response = ariaChatHandler.confirmSaveRule(pendingAction.rule)
+                            _messages.value += UiMessage(Role.ASSISTANT, response.text)
+                        }
+
+                        is ConfirmationAction.ForgetMemory -> {
+                            memoryRepo.delete(pendingAction.memoryId)
+                            _messages.value += UiMessage(
+                                Role.ASSISTANT,
+                                "Forgot: “${pendingAction.fact}”",
+                            )
+                        }
                     }
-                    _messages.value += UiMessage(Role.ASSISTANT, response.text)
                     return
-                } else if (lowerText.startsWith("no") || lowerText == "n") {
+                } else if (isNegative) {
                     pendingConfirmation = null
-                    _messages.value += UiMessage(Role.ASSISTANT, "Got it, rule discarded.")
+                    val cancelText = when (pendingAction) {
+                        is ConfirmationAction.SaveRule -> "Got it, rule discarded."
+                        is ConfirmationAction.ForgetMemory -> "OK, keeping that memory."
+                    }
+                    _messages.value += UiMessage(Role.ASSISTANT, cancelText)
                     return
                 }
                 // "Change it" or anything else falls through to the LLM
@@ -150,10 +199,8 @@ class ChatState(
                 isAndroidAutoConnected = contextSignalManager.isAndroidAutoConnected.value,
             )
 
-            // Load user memories for context
-            val memories = withContext(Dispatchers.IO) {
-                userMemoryDao.getRecent(20)
-            }
+            // Load user memories most relevant to the current message
+            val memories = memoryRepo.recentForContext(text, limit = 15)
 
             val capabilities = withContext(Dispatchers.IO) {
                 capabilityCatalog.getCapabilities()
@@ -199,6 +246,7 @@ class ChatState(
 
             var round = 0
             var currentMessages = chatMessages
+            var repliedOrErrored = false
 
             while (round < MAX_TOOL_ROUNDS) {
                 val result = withContext(Dispatchers.IO) {
@@ -213,6 +261,7 @@ class ChatState(
                     is LlmResult.Text -> {
                         val assistantMessage = UiMessage(Role.ASSISTANT, result.content)
                         _messages.value += assistantMessage
+                        repliedOrErrored = true
                         break
                     }
 
@@ -242,23 +291,45 @@ class ChatState(
                             _messages.value += UiMessage(Role.ASSISTANT, errorMsg)
                         }
 
-                        // Feed results back to the AI for continuation
-                        val toolResultText = toolResults.joinToString("\n") {
-                            "[Tool ${it.toolName}]: ${it.result}"
-                        }
-                        currentMessages = currentMessages + listOf(
-                            ChatMessage(Role.ASSISTANT, result.content),
-                            ChatMessage(Role.USER, toolResultText),
+                        // Feed results back to the AI for continuation using the correct
+                        // protocol: the assistant message carries its structured tool_calls,
+                        // and each result returns as its own TOOL message tied to a call id.
+                        val assistantMessage = ChatMessage(
+                            role = Role.ASSISTANT,
+                            content = result.content,
+                            toolCalls = result.toolCalls,
                         )
+                        val toolMessages = result.toolCalls.mapIndexed { index, toolCall ->
+                            val toolResult = toolResults[index]
+                            ChatMessage(
+                                role = Role.TOOL,
+                                content = toolResult.result,
+                                toolCallId = toolCall.id,
+                                toolName = toolCall.name,
+                            )
+                        }
+                        currentMessages = currentMessages + assistantMessage + toolMessages
                         round++
                     }
 
                     is LlmResult.Error -> {
                         _error.value = result.message
                         Log.e(TAG, "LLM error: ${result.message}", result.cause)
+                        repliedOrErrored = true
                         break
                     }
                 }
+            }
+
+            // If the model kept calling tools until the round budget ran out, it never
+            // produced a final answer. Small models are especially prone to this — emit
+            // a fallback so the user isn't left with a silent, stalled spinner.
+            if (!repliedOrErrored) {
+                Log.w(TAG, "Tool loop exhausted $MAX_TOOL_ROUNDS rounds without a final reply")
+                _messages.value += UiMessage(
+                    Role.ASSISTANT,
+                    "I got stuck working through that one. Could you rephrase or try again?",
+                )
             }
 
             // After conversation turn completes, extract memories in background
@@ -294,9 +365,7 @@ class ChatState(
                 isAndroidAutoConnected = contextSignalManager.isAndroidAutoConnected.value,
             )
 
-            val memories = withContext(Dispatchers.IO) {
-                userMemoryDao.getRecent(20)
-            }
+            val memories = memoryRepo.recentForContext(text, limit = 15)
 
             val systemPrompt = AriaPrompts.buildSystemPrompt(
                 signals = contextSignalManager,
@@ -346,77 +415,16 @@ class ChatState(
     }
 
     /**
-     * Extract memorable facts from the recent conversation and store them.
-     * Runs after each assistant response. Uses the LLM to identify facts worth remembering.
+     * Hand the recent conversation tail to [MemoryRepository] for extraction.
+     * The repository owns all gating, debouncing, and dedup heuristics.
      */
     private suspend fun extractMemories() {
-        val memoryEnabled = ariaPreferences.memoryEnabled.first()
-        if (!memoryEnabled) return
-
-        val recentMessages = _messages.value.takeLast(4) // Last 2 exchanges
-        if (recentMessages.size < 2) return
-
         val provider = llmProviderManager.getProvider() ?: return
-
         try {
-            val existingMemories = withContext(Dispatchers.IO) {
-                userMemoryDao.getRecent(30)
-            }
-            val existingFacts = existingMemories.map { it.fact }
-
-            val extractionPrompt = AriaPrompts.buildMemoryExtractionPrompt(
-                recentMessages = recentMessages.map { "${it.role.name}: ${it.content}" },
-                existingMemories = existingFacts,
-            )
-
-            val result = withContext(Dispatchers.IO) {
-                provider.complete(
-                    systemPrompt = extractionPrompt,
-                    messages = listOf(ChatMessage(Role.USER, "Extract noteworthy memories from the conversation above.")),
-                )
-            }
-
-            if (result is LlmResult.Text) {
-                parseAndStoreMemories(result.content)
-            }
+            val recent = _messages.value.takeLast(4).map { it.role to it.content }
+            memoryRepo.runExtraction(provider, recent)
         } catch (e: Exception) {
             Log.w(TAG, "Memory extraction failed (non-fatal)", e)
-        }
-    }
-
-    private suspend fun parseAndStoreMemories(response: String) {
-        // Expected format: one fact per line, prefixed with category in brackets
-        // e.g. "[preference] User prefers dark mode"
-        // or just plain facts if no category
-        val lines = response.lines()
-            .map { it.trim() }
-            .filter { it.isNotBlank() && !it.startsWith("NONE", ignoreCase = true) }
-
-        for (line in lines) {
-            val categoryMatch = Regex("""\[(\w+)](.+)""").find(line)
-            val (category, fact) = if (categoryMatch != null) {
-                categoryMatch.groupValues[1].lowercase() to categoryMatch.groupValues[2].trim()
-            } else {
-                "general" to line
-            }
-
-            if (fact.length < 5 || fact.length > 300) continue
-
-            // Check for near-duplicates
-            val existing = withContext(Dispatchers.IO) {
-                userMemoryDao.search(fact.take(30))
-            }
-            if (existing.any { it.fact.equals(fact, ignoreCase = true) }) continue
-
-            withContext(Dispatchers.IO) {
-                userMemoryDao.insert(
-                    UserMemory(
-                        fact = fact,
-                        category = category,
-                    ),
-                )
-            }
-            Log.d(TAG, "Stored memory [$category]: $fact")
         }
     }
 
@@ -425,6 +433,17 @@ class ChatState(
         private const val MAX_TOOL_ROUNDS = 5
 
         /** Tools whose results are purely internal LLM context — never shown to the user. */
-        private val INTERNAL_TOOLS = setOf("fetch_url", "activate_skill", "read_notifications")
+        private val INTERNAL_TOOLS = setOf(
+            "fetch_url",
+            "activate_skill",
+            "read_notifications",
+            "lookup_contact",
+            "get_calendar_events",
+            "get_current_location",
+            "list_apps",
+            "get_weather",
+            "remember",
+            "forget",
+        )
     }
 }

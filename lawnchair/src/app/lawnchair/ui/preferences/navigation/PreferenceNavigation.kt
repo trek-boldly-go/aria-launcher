@@ -54,6 +54,7 @@ import app.lawnchair.ui.preferences.destinations.SelectIconPreference
 import app.lawnchair.ui.preferences.destinations.ShapePreference
 import app.lawnchair.ui.preferences.destinations.SmartspacePreferences
 import com.android.launcher3.util.ComponentKey
+import com.aria.launcher.aria.ui.memory.MemoryManagerScreen
 import com.aria.launcher.aria.ui.rules.RulesScreen
 import soup.compose.material.motion.animation.materialSharedAxisXIn
 import soup.compose.material.motion.animation.materialSharedAxisXOut
@@ -160,6 +161,7 @@ fun PreferenceNavigation(
         composable<AriaSettings> { AriaSettingsPreferences() }
         composable<AriaLlmSetup> { AriaLlmProviderSetupPreferences() }
         composable<AriaRules> { RulesScreen() }
+        composable<AriaMemory> { MemoryManagerScreen() }
 
         composable<SelectIcon> { backStackEntry ->
             val args: SelectIcon = backStackEntry.toRoute()

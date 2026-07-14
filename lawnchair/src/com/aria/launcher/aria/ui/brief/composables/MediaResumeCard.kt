@@ -3,12 +3,7 @@ package com.aria.launcher.aria.ui.brief.composables
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,25 +11,15 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.aria.launcher.aria.ui.brief.BriefAction
 import com.aria.launcher.aria.ui.brief.BriefItem
 
-/**
- * Media resume card — compact player-in-miniature aesthetic.
- *
- * Design: Gradient thumbnail square (44dp) acts as visual anchor and album art placeholder.
- * Track info takes the center. Play circle button at the far right.
- * No left accent strip — the gradient thumbnail IS the visual signal.
- */
 @Composable
 fun MediaResumeCard(
     item: BriefItem.MediaResume,
@@ -44,12 +29,11 @@ fun MediaResumeCard(
     val primaryContainer = MaterialTheme.colorScheme.primaryContainer
     val secondaryContainer = MaterialTheme.colorScheme.secondaryContainer
 
-    BriefCard(modifier = modifier) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Album art placeholder — gradient swatch, feels like real artwork
+    UnifiedBriefCard(
+        headline = item.title,
+        modifier = modifier,
+        subtext = item.subtitle.takeIf { it.isNotBlank() },
+        leadingMedia = {
             Box(
                 modifier = Modifier
                     .size(44.dp)
@@ -68,38 +52,14 @@ fun MediaResumeCard(
                     tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
                 )
             }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleSmall.copy(
-                        fontWeight = FontWeight.SemiBold,
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (item.subtitle.isNotBlank()) {
-                    Text(
-                        text = item.subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = BriefCardDefaults.subtitleColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // Play circle — clear, scannable, no text needed
+        },
+        trailingWidget = {
             IconButton(
                 onClick = { onActionClick(item.resumeAction) },
                 modifier = Modifier
                     .size(36.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                    .background(secondaryContainer),
             ) {
                 Icon(
                     imageVector = Icons.Filled.PlayArrow,
@@ -108,6 +68,6 @@ fun MediaResumeCard(
                     tint = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
             }
-        }
-    }
+        },
+    )
 }

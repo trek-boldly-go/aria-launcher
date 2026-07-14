@@ -16,6 +16,9 @@ import kotlinx.coroutines.withContext
 sealed class ConfirmationAction {
     /** User should confirm before ARIA saves this rule to the database. */
     data class SaveRule(val rule: AriaRule) : ConfirmationAction()
+
+    /** User should confirm before ARIA deletes a stored memory matched via the `forget` tool. */
+    data class ForgetMemory(val memoryId: Long, val fact: String) : ConfirmationAction()
 }
 
 /**

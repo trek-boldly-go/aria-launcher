@@ -113,6 +113,10 @@ Hilt/Dagger with 4 modules installed in `SingletonComponent`:
 | `ChatModule` | `chat/` | Chat-related dependencies |
 | `SkillModule` | `engine/` | Skill execution dependencies |
 
+### Room Database Migrations
+
+**Any schema change requires an explicit migration.** See [`.claude/room-migration-guide.md`](.claude/room-migration-guide.md) for the full procedure. Never add `fallbackToDestructiveMigration()` — it wipes all user data on version bumps.
+
 ### App Startup Flow
 
 `LawnchairApp` (`@HiltAndroidApp`) → injects `ContextSignalManager` → schedules WorkManager jobs (usage collection every 4h, nightly predictions at ~3AM).

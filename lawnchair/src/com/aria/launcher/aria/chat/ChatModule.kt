@@ -3,8 +3,12 @@ package com.aria.launcher.aria.chat
 
 import android.content.Context
 import com.aria.launcher.aria.data.AriaPreferences
+import com.aria.launcher.aria.data.CalendarEventProvider
+import com.aria.launcher.aria.data.ContactsRepository
 import com.aria.launcher.aria.data.ContextSignalManager
-import com.aria.launcher.aria.data.UserMemoryDao
+import com.aria.launcher.aria.data.LocationProvider
+import com.aria.launcher.aria.data.MemoryRepository
+import com.aria.launcher.aria.data.WeatherProvider
 import com.aria.launcher.aria.engine.AppActivityCatalog
 import com.aria.launcher.aria.engine.AppLabelResolver
 import com.aria.launcher.aria.engine.DeviceCapabilityCatalog
@@ -29,7 +33,7 @@ object ChatModule {
         @ApplicationContext context: Context,
         llmProviderManager: LlmProviderManager,
         contextSignalManager: ContextSignalManager,
-        userMemoryDao: UserMemoryDao,
+        memoryRepository: MemoryRepository,
         ariaPreferences: AriaPreferences,
         ariaChatHandler: AriaChatHandler,
         capabilityCatalog: DeviceCapabilityCatalog,
@@ -37,17 +41,25 @@ object ChatModule {
         @AriaLlmClient httpClient: OkHttpClient,
         agentSkillManager: AgentSkillManager,
         appLabelResolver: AppLabelResolver,
+        contactsRepository: ContactsRepository,
+        calendarEventProvider: CalendarEventProvider,
+        weatherProvider: WeatherProvider,
+        locationProvider: LocationProvider,
     ): ChatState = ChatState(
-        context,
-        llmProviderManager,
-        contextSignalManager,
-        userMemoryDao,
-        ariaPreferences,
-        ariaChatHandler,
-        capabilityCatalog,
-        appActivityCatalog,
-        httpClient,
-        agentSkillManager,
-        appLabelResolver,
+        context = context,
+        llmProviderManager = llmProviderManager,
+        contextSignalManager = contextSignalManager,
+        memoryRepo = memoryRepository,
+        ariaPreferences = ariaPreferences,
+        ariaChatHandler = ariaChatHandler,
+        capabilityCatalog = capabilityCatalog,
+        appActivityCatalog = appActivityCatalog,
+        httpClient = httpClient,
+        agentSkillManager = agentSkillManager,
+        appLabelResolver = appLabelResolver,
+        contactsRepository = contactsRepository,
+        calendarEventProvider = calendarEventProvider,
+        weatherProvider = weatherProvider,
+        locationProvider = locationProvider,
     )
 }

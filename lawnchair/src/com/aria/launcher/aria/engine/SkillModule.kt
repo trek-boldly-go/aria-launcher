@@ -2,8 +2,8 @@
 package com.aria.launcher.aria.engine
 
 import android.content.Context
-import com.aria.launcher.aria.data.AriaPreferences
 import com.aria.launcher.aria.data.CalendarEventProvider
+import com.aria.launcher.aria.data.LocationProvider
 import com.aria.launcher.aria.data.NearbyWifiScanner
 import com.aria.launcher.aria.data.SkillDao
 import com.aria.launcher.aria.engine.skills.AgentSkillManager
@@ -33,7 +33,7 @@ object SkillModule {
         @ApplicationContext context: Context,
         calendarEventProvider: CalendarEventProvider,
         wifiScanner: NearbyWifiScanner,
-        ariaPreferences: AriaPreferences,
+        locationProvider: LocationProvider,
         @AriaLlmClient httpClient: OkHttpClient,
         json: Json,
         agentSkillManager: AgentSkillManager,
@@ -43,7 +43,7 @@ object SkillModule {
             NotificationSkillExecutor(json),
             CalendarSkillExecutor(calendarEventProvider, json),
             VenueSkillExecutor(wifiScanner, json),
-            WeatherSkillExecutor(context, httpClient, json, ariaPreferences),
+            WeatherSkillExecutor(httpClient, json, locationProvider),
         )
         val scheduledExecutor = ScheduledSkillExecutor(
             context,
