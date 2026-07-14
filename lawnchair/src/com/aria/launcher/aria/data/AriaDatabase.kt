@@ -58,6 +58,11 @@ abstract class AriaDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE VIRTUAL TABLE IF NOT EXISTS `user_memory_fts` USING FTS4(`fact` TEXT NOT NULL)",
                 )
+                // Backfill the index from existing memories (rowid = user_memory.id, matching
+                // MemoryRepository.insertFts) so a v9 user's prior memories remain searchable.
+                db.execSQL(
+                    "INSERT INTO `user_memory_fts`(`rowid`, `fact`) SELECT `id`, `fact` FROM `user_memory`",
+                )
             }
         }
 
