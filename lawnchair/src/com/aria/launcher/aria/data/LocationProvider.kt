@@ -16,7 +16,9 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 data class LocationSnapshot(
@@ -48,24 +50,30 @@ class LocationProvider @Inject constructor(
      * fused-location request fails. Falls back to the most recently saved location in
      * [AriaPreferences] when GPS is unavailable.
      */
-    suspend fun getCurrentLocation(includeLabel: Boolean = true): LocationSnapshot? {
+    suspend fun getCurrentLocation(includeLabel: Boolean = true): LocationSnapshot? = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         cached?.let { snap ->
-            if (now - cacheTimestamp < CACHE_DURATION_MS) return snap
+            if (now - cacheTimestamp < CACHE_DURATION_MS) return@withContext snap
         }
 
-        val (lat, lng, accuracy) = fetchGps() ?: fetchSavedFallback() ?: return cached
+        val gps = fetchGps()
+        val (lat, lng, accuracy) = gps ?: fetchSavedFallback() ?: return@withContext cached
         val label = if (includeLabel) reverseGeocode(lat, lng) else null
         val snap = LocationSnapshot(lat, lng, accuracy, now, label)
         cached = snap
         cacheTimestamp = now
 
-        // Persist the freshly-read location so the saved-location fallback stays warm.
-        try {
-            ariaPreferences.setDefaultLocation(lat, lng)
-        } catch (_: Exception) { }
+        // Persist only fresh GPS fixes. Re-saving the fallback would reset
+        // KEY_DEFAULT_LOCATION_TS on every read, so the 24h staleness cap in
+        // fetchSavedFallback could never fire and stale coordinates would be
+        // served indefinitely once GPS became unavailable.
+        if (gps != null) {
+            try {
+                ariaPreferences.setDefaultLocation(lat, lng)
+            } catch (_: Exception) { }
+        }
 
-        return snap
+        snap
     }
 
     /** Returns just (lat, lng) for callers that don't need accuracy/label/cache semantics. */

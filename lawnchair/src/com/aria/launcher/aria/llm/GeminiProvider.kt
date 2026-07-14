@@ -144,10 +144,23 @@ class GeminiProvider(
 
             // Conversation contents. The REST API only allows "user"/"model" roles;
             // assistant tool calls become functionCall parts and TOOL results become
-            // functionResponse parts in a user-role turn.
+            // functionResponse parts. Consecutive tool results must be coalesced into a
+            // single user turn — separate turns are adjacent same-role contents, which
+            // Gemini rejects with 400 INVALID_ARGUMENT.
             putJsonArray("contents") {
-                for (msg in messages) {
-                    add(buildContentObject(msg))
+                var i = 0
+                while (i < messages.size) {
+                    if (messages[i].role == Role.TOOL) {
+                        val run = mutableListOf<ChatMessage>()
+                        while (i < messages.size && messages[i].role == Role.TOOL) {
+                            run.add(messages[i])
+                            i++
+                        }
+                        add(buildToolResponsesContent(run))
+                    } else {
+                        add(buildContentObject(messages[i]))
+                        i++
+                    }
                 }
             }
 
@@ -185,34 +198,50 @@ class GeminiProvider(
         return json.encodeToString(JsonObject.serializer(), jsonBody)
     }
 
-    /** Serializes a chat message into a Gemini `contents` entry. */
+    /** Serializes a non-tool chat message into a Gemini `contents` entry. */
     private fun buildContentObject(msg: ChatMessage): JsonObject = when (msg.role) {
         Role.ASSISTANT -> buildJsonObject {
             put("role", "model")
             putJsonArray("parts") {
-                if (msg.content.isNotBlank() || msg.toolCalls.isEmpty()) {
-                    add(buildJsonObject { put("text", msg.content) })
-                }
-                for (call in msg.toolCalls) {
-                    add(
-                        buildJsonObject {
-                            putJsonObject("functionCall") {
-                                put("name", call.name)
-                                putJsonObject("args") {
-                                    for ((key, value) in call.arguments) {
-                                        put(key, value)
+                if (msg.toolCalls.isEmpty()) {
+                    // Gemini rejects an empty text part / empty parts array, so never
+                    // emit "" for a blank plain-text assistant turn.
+                    add(buildJsonObject { put("text", msg.content.ifBlank { " " }) })
+                } else {
+                    if (msg.content.isNotBlank()) {
+                        add(buildJsonObject { put("text", msg.content) })
+                    }
+                    for (call in msg.toolCalls) {
+                        add(
+                            buildJsonObject {
+                                putJsonObject("functionCall") {
+                                    put("name", call.name)
+                                    putJsonObject("args") {
+                                        for ((key, value) in call.arguments) {
+                                            put(key, value)
+                                        }
                                     }
                                 }
-                            }
-                        },
-                    )
+                            },
+                        )
+                    }
                 }
             }
         }
 
-        Role.TOOL -> buildJsonObject {
+        else -> buildJsonObject {
             put("role", "user")
             putJsonArray("parts") {
+                add(buildJsonObject { put("text", msg.content) })
+            }
+        }
+    }
+
+    /** Serializes a run of consecutive TOOL results into a single user-role `contents` entry. */
+    private fun buildToolResponsesContent(toolMessages: List<ChatMessage>): JsonObject = buildJsonObject {
+        put("role", "user")
+        putJsonArray("parts") {
+            for (msg in toolMessages) {
                 add(
                     buildJsonObject {
                         putJsonObject("functionResponse") {
@@ -223,13 +252,6 @@ class GeminiProvider(
                         }
                     },
                 )
-            }
-        }
-
-        else -> buildJsonObject {
-            put("role", "user")
-            putJsonArray("parts") {
-                add(buildJsonObject { put("text", msg.content) })
             }
         }
     }

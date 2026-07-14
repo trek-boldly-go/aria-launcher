@@ -366,9 +366,17 @@ private fun jsonElementToNative(element: JsonElement): Any? = when (element) {
     is JsonNull -> null
 
     is JsonPrimitive -> when {
+        // Check isString first: kotlinx evaluates boolean/long/doubleOrNull on the raw
+        // content text regardless of quoting, so a quoted "07030" or "true" would otherwise
+        // be coerced to a number/boolean (dropping the leading zero, changing the type).
+        element.isString -> element.content
+
         element.booleanOrNull != null -> element.boolean
+
         element.longOrNull != null -> element.long
+
         element.doubleOrNull != null -> element.double
+
         else -> element.contentOrNull
     }
 

@@ -237,6 +237,7 @@ class ChatState(
 
             var round = 0
             var currentMessages = chatMessages
+            var repliedOrErrored = false
 
             while (round < MAX_TOOL_ROUNDS) {
                 val result = withContext(Dispatchers.IO) {
@@ -251,6 +252,7 @@ class ChatState(
                     is LlmResult.Text -> {
                         val assistantMessage = UiMessage(Role.ASSISTANT, result.content)
                         _messages.value += assistantMessage
+                        repliedOrErrored = true
                         break
                     }
 
@@ -304,9 +306,21 @@ class ChatState(
                     is LlmResult.Error -> {
                         _error.value = result.message
                         Log.e(TAG, "LLM error: ${result.message}", result.cause)
+                        repliedOrErrored = true
                         break
                     }
                 }
+            }
+
+            // If the model kept calling tools until the round budget ran out, it never
+            // produced a final answer. Small models are especially prone to this — emit
+            // a fallback so the user isn't left with a silent, stalled spinner.
+            if (!repliedOrErrored) {
+                Log.w(TAG, "Tool loop exhausted $MAX_TOOL_ROUNDS rounds without a final reply")
+                _messages.value += UiMessage(
+                    Role.ASSISTANT,
+                    "I got stuck working through that one. Could you rephrase or try again?",
+                )
             }
 
             // After conversation turn completes, extract memories in background

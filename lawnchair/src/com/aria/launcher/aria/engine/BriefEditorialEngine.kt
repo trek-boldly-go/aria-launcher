@@ -201,7 +201,8 @@ class BriefEditorialEngine @Inject constructor(
             when (result) {
                 is LlmResult.Text -> {
                     Log.d(TAG, "Heartbeat LLM response (round $round):\n${result.content}")
-                    val items = parseJsonToBriefItems(result.content) ?: return null
+                    val items = parseJsonToBriefItems(result.content)
+                        ?: return agenticCardsOrNull(executedActions, pendingConfirmations)
                     return items + buildAgenticCards(executedActions, pendingConfirmations)
                 }
 
@@ -235,13 +236,28 @@ class BriefEditorialEngine @Inject constructor(
                 is LlmResult.Error -> {
                     Log.w(TAG, "Heartbeat LLM failed: ${result.message}")
                     applyBackoffIfRateLimited(result.message)
-                    return null
+                    return agenticCardsOrNull(executedActions, pendingConfirmations)
                 }
             }
         }
 
         Log.w(TAG, "Heartbeat exceeded max tool rounds ($maxRounds)")
-        return null
+        return agenticCardsOrNull(executedActions, pendingConfirmations)
+    }
+
+    /**
+     * Returns the agentic cards for actions already executed or confirmations already
+     * queued this run, or null if there are none. Used on the error / max-rounds /
+     * unparseable-JSON exits so a real side effect or a pending user confirmation is
+     * never silently dropped (which would leave the Brief falling back to heuristics
+     * and the user never asked to approve the action the model believes it queued).
+     */
+    private fun agenticCardsOrNull(
+        executedActions: List<ExecutedAction>,
+        pendingConfirmations: List<PendingConfirmation>,
+    ): List<BriefItem>? {
+        if (executedActions.isEmpty() && pendingConfirmations.isEmpty()) return null
+        return buildAgenticCards(executedActions, pendingConfirmations)
     }
 
     /**

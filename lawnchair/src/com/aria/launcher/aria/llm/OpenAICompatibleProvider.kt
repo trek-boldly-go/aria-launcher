@@ -151,7 +151,7 @@ class OpenAICompatibleProvider(
                 }
             }
 
-            if (tools != null) {
+            if (!tools.isNullOrEmpty()) {
                 putJsonArray("tools") {
                     for (tool in tools) {
                         add(
@@ -185,7 +185,13 @@ class OpenAICompatibleProvider(
         when (msg.role) {
             Role.ASSISTANT -> {
                 put("role", "assistant")
-                put("content", msg.content)
+                // A tool-call-only turn has no text; some backends reject content:"" when
+                // tool_calls are present, so send null in that case.
+                if (msg.toolCalls.isNotEmpty() && msg.content.isBlank()) {
+                    put("content", kotlinx.serialization.json.JsonNull)
+                } else {
+                    put("content", msg.content)
+                }
                 if (msg.toolCalls.isNotEmpty()) {
                     putJsonArray("tool_calls") {
                         for (call in msg.toolCalls) {
