@@ -92,6 +92,13 @@ class LiteRtToolPromptTest {
     }
 
     @Test
+    fun `parseReply keeps ordinary JSON with a name key as plain text`() {
+        // A model asked for a contact card may emit {"name": ...}; that is not a tool call.
+        val text = """{"name": "Alice", "age": 30}"""
+        assertThat(LiteRtToolPrompt.parseReply(text)).isEqualTo(LiteRtToolPrompt.Reply.PlainText(text))
+    }
+
+    @Test
     fun `parseReply treats a blank tool name as plain text`() {
         val text = """{"tool": "  ", "arguments": {}}"""
         assertThat(LiteRtToolPrompt.parseReply(text)).isEqualTo(LiteRtToolPrompt.Reply.PlainText(text))
@@ -120,6 +127,24 @@ class LiteRtToolPromptTest {
         val inv = reparsed as LiteRtToolPrompt.Reply.Invocation
         assertThat(inv.name).isEqualTo("open_app")
         assertThat(inv.arguments["package_name"]?.jsonPrimitive?.content).isEqualTo("com.foo")
+    }
+
+    @Test
+    fun `contentForMessage renders both narration and tool call when both present`() {
+        val msg = ChatMessage(
+            role = Role.ASSISTANT,
+            content = "Let me look that up.",
+            toolCalls = listOf(
+                ToolCall("id1", "search_web", mapOf("query" to JsonPrimitive("weather"))),
+            ),
+        )
+        val rendered = LiteRtToolPrompt.contentForMessage(msg)
+
+        assertThat(rendered).contains("Let me look that up.")
+        // The tool call must still be recoverable, not hidden behind the prose.
+        val reparsed = LiteRtToolPrompt.parseReply(rendered)
+        assertThat(reparsed).isInstanceOf(LiteRtToolPrompt.Reply.Invocation::class.java)
+        assertThat((reparsed as LiteRtToolPrompt.Reply.Invocation).name).isEqualTo("search_web")
     }
 
     @Test

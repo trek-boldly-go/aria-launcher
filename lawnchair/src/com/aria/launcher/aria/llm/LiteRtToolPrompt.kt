@@ -63,7 +63,10 @@ object LiteRtToolPrompt {
         val candidate = extractJsonObject(reply) ?: return Reply.PlainText(reply)
         val obj = runCatching { json.parseToJsonElement(candidate) as? JsonObject }.getOrNull()
             ?: return Reply.PlainText(reply)
-        val name = (obj["tool"] ?: obj["name"])?.stringOrNull()?.takeIf { it.isNotBlank() }
+        // Only "tool" is a tool call — the rendered protocol and contentForMessage both
+        // emit "tool". Do not accept "name"; ordinary JSON like {"name":"Alice"} is not
+        // an invocation and must round-trip as plain text.
+        val name = obj["tool"]?.stringOrNull()?.takeIf { it.isNotBlank() }
             ?: return Reply.PlainText(reply)
         val arguments = (obj["arguments"] as? JsonObject) ?: emptyMap()
         return Reply.Invocation(name, arguments)
@@ -78,8 +81,18 @@ object LiteRtToolPrompt {
      */
     fun contentForMessage(message: ChatMessage): String {
         if (message.role == Role.TOOL) return renderToolResult(message)
-        if (message.content.isNotBlank()) return message.content
-        val call = message.toolCalls.firstOrNull() ?: return message.content
+        val invocation = message.toolCalls.firstOrNull()?.let(::renderInvocation)
+        return when {
+            message.content.isBlank() -> invocation ?: message.content
+
+            invocation == null -> message.content
+
+            // Both narration and a tool call: render both so neither is silently dropped.
+            else -> message.content + "\n" + invocation
+        }
+    }
+
+    private fun renderInvocation(call: ToolCall): String {
         val obj = buildJsonObject {
             put("tool", call.name)
             put("arguments", JsonObject(call.arguments))

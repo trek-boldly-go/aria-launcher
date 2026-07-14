@@ -117,11 +117,14 @@ class LiteRtLmProvider @Inject constructor(
         )
         sessionMutex.withLock {
             try {
-                val initialMessages = messages.dropLast(1).map(::toLiteRtMessage)
+                val initialMessages = historyMessages(messages)
                 val userMessage = messages.lastOrNull()?.let(LiteRtToolPrompt::contentForMessage) ?: ""
                 Log.d(TAG, "complete() ── INPUT ──")
                 Log.d(TAG, "  system: ${systemPrompt.take(500)}")
                 Log.d(TAG, "  user: ${userMessage.take(500)}")
+                // maxTokens is advisory here: litertlm 0.9.0 exposes no per-call generation
+                // cap (SamplerConfig has only topK/topP/temperature/seed); the only limit is
+                // the engine-wide EngineConfig.maxNumTokens set at warm-up. Logged for parity.
                 Log.d(TAG, "  messages: ${messages.size} (history: ${initialMessages.size}), maxTokens: $maxTokens")
                 val startMs = System.currentTimeMillis()
                 val config = ConversationConfig(
@@ -150,7 +153,7 @@ class LiteRtLmProvider @Inject constructor(
     ): Flow<String> = flow {
         val eng = ensureEngine() ?: error("On-device model not downloaded")
         sessionMutex.withLock {
-            val initialMessages = messages.dropLast(1).map(::toLiteRtMessage)
+            val initialMessages = historyMessages(messages)
             val userMessage = messages.lastOrNull()?.let(LiteRtToolPrompt::contentForMessage) ?: ""
             Log.d(TAG, "streamComplete() ── INPUT ──")
             Log.d(TAG, "  system: ${systemPrompt.take(500)}")
@@ -205,6 +208,14 @@ class LiteRtLmProvider @Inject constructor(
             else -> result
         }
     }
+
+    /**
+     * Builds the replayed history (all but the final turn), dropping any message that
+     * renders to blank text — an empty turn can break a model's chat template.
+     */
+    private fun historyMessages(messages: List<ChatMessage>): List<Message> = messages.dropLast(1)
+        .filter { LiteRtToolPrompt.contentForMessage(it).isNotBlank() }
+        .map(::toLiteRtMessage)
 
     /** Maps an ARIA [ChatMessage] into a LiteRT [Message] for history replay. */
     private fun toLiteRtMessage(msg: ChatMessage): Message {
