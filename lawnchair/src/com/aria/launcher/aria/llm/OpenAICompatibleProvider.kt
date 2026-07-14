@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -148,22 +147,7 @@ class OpenAICompatibleProvider(
                     },
                 )
                 for (msg in messages) {
-                    val role = when (msg.role) {
-                        Role.ASSISTANT -> "assistant"
-
-                        Role.SYSTEM -> "system"
-
-                        Role.TOOL -> "user"
-
-                        // Tool results sent as user messages
-                        else -> "user"
-                    }
-                    add(
-                        buildJsonObject {
-                            put("role", role)
-                            put("content", msg.content)
-                        },
-                    )
+                    add(buildMessageObject(msg))
                 }
             }
 
@@ -190,6 +174,59 @@ class OpenAICompatibleProvider(
             }
         }
         return json.encodeToString(JsonObject.serializer(), jsonBody)
+    }
+
+    /**
+     * Serializes a single chat message into the OpenAI `/chat/completions` wire format.
+     * Assistant tool calls carry a stringified `arguments` object (per the OpenAI spec);
+     * TOOL results are `role:"tool"` messages tied back via `tool_call_id`.
+     */
+    private fun buildMessageObject(msg: ChatMessage): JsonObject = buildJsonObject {
+        when (msg.role) {
+            Role.ASSISTANT -> {
+                put("role", "assistant")
+                put("content", msg.content)
+                if (msg.toolCalls.isNotEmpty()) {
+                    putJsonArray("tool_calls") {
+                        for (call in msg.toolCalls) {
+                            add(
+                                buildJsonObject {
+                                    put("id", call.id)
+                                    put("type", "function")
+                                    putJsonObject("function") {
+                                        put("name", call.name)
+                                        // OpenAI requires arguments as a JSON *string*, not an object.
+                                        put(
+                                            "arguments",
+                                            json.encodeToString(
+                                                JsonObject.serializer(),
+                                                JsonObject(call.arguments),
+                                            ),
+                                        )
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
+            Role.TOOL -> {
+                put("role", "tool")
+                msg.toolCallId?.let { put("tool_call_id", it) }
+                put("content", msg.content)
+            }
+
+            Role.SYSTEM -> {
+                put("role", "system")
+                put("content", msg.content)
+            }
+
+            Role.USER -> {
+                put("role", "user")
+                put("content", msg.content)
+            }
+        }
     }
 
     private fun buildRequest(body: String): Request = Request.Builder()

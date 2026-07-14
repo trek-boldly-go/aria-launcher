@@ -7,6 +7,12 @@ enum class Role { USER, ASSISTANT, SYSTEM, TOOL }
 data class ChatMessage(
     val role: Role,
     val content: String,
+    /** Set on ASSISTANT messages that requested tools; echoed back so the model sees its own calls. */
+    val toolCalls: List<ToolCall> = emptyList(),
+    /** Set on TOOL messages: the id of the assistant tool call this result answers. */
+    val toolCallId: String? = null,
+    /** Set on TOOL messages: the name of the tool that produced this result (some APIs require it). */
+    val toolName: String? = null,
 )
 
 @Serializable

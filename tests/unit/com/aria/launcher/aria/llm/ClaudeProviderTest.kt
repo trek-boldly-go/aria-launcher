@@ -3,6 +3,7 @@ package com.aria.launcher.aria.llm
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.OkHttpClient
 import org.junit.Test
 
@@ -71,6 +72,29 @@ class ClaudeProviderTest {
             listOf(ChatMessage(Role.USER, "hello")),
             tools,
         )
+        assertThat(result).isInstanceOf(LlmResult.Error::class.java)
+    }
+
+    @Test
+    fun `tool call history is built into content blocks without throwing`() = runTest {
+        // Exercises buildParams with an assistant tool_use block followed by a
+        // tool_result block. A malformed conversion would throw here; a valid one
+        // surfaces as an auth Error once it reaches the network.
+        val provider = ClaudeProvider(client, json, "sk-ant-api-invalid")
+        val call = ToolCall(
+            id = "toolu_1",
+            name = "get_weather",
+            arguments = mapOf("location" to JsonPrimitive("NYC")),
+        )
+        val messages = listOf(
+            ChatMessage(Role.USER, "weather?"),
+            ChatMessage(Role.ASSISTANT, "checking", toolCalls = listOf(call)),
+            ChatMessage(Role.TOOL, "72F sunny", toolCallId = call.id, toolName = call.name),
+        )
+        val tools = listOf(ToolDefinition("get_weather", "Get weather", mapOf()))
+
+        val result = provider.completeWithTools("system", messages, tools)
+
         assertThat(result).isInstanceOf(LlmResult.Error::class.java)
     }
 }

@@ -216,13 +216,12 @@ class OllamaProvider(
                     },
                 )
                 for (msg in messages) {
-                    add(
-                        buildJsonObject {
-                            put("role", if (msg.role == Role.ASSISTANT) "assistant" else "user")
-                            put("content", msg.content)
-                        },
-                    )
+                    add(buildMessageObject(msg))
                 }
+            }
+            putJsonObject("options") {
+                put("num_ctx", NUM_CTX)
+                put("temperature", TEMPERATURE)
             }
             if (!tools.isNullOrEmpty()) {
                 putJsonArray("tools") {
@@ -248,9 +247,65 @@ class OllamaProvider(
         return json.encodeToString(JsonObject.serializer(), jsonBody)
     }
 
+    /**
+     * Serializes a single chat message into Ollama's `/api/chat` wire format.
+     * Assistant messages echo their `tool_calls`; TOOL results are their own
+     * `role:"tool"` message carrying the tool name.
+     */
+    private fun buildMessageObject(msg: ChatMessage): JsonObject = buildJsonObject {
+        when (msg.role) {
+            Role.ASSISTANT -> {
+                put("role", "assistant")
+                put("content", msg.content)
+                if (msg.toolCalls.isNotEmpty()) {
+                    putJsonArray("tool_calls") {
+                        for (call in msg.toolCalls) {
+                            add(
+                                buildJsonObject {
+                                    putJsonObject("function") {
+                                        put("name", call.name)
+                                        putJsonObject("arguments") {
+                                            for ((key, value) in call.arguments) {
+                                                put(key, value)
+                                            }
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
+            Role.TOOL -> {
+                put("role", "tool")
+                msg.toolName?.let { put("tool_name", it) }
+                put("content", msg.content)
+            }
+
+            Role.SYSTEM -> {
+                put("role", "system")
+                put("content", msg.content)
+            }
+
+            Role.USER -> {
+                put("role", "user")
+                put("content", msg.content)
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "ARIA.Ollama"
         private const val DEFAULT_MODEL = "qwen2.5:7b"
+
+        /**
+         * Ollama defaults to a 4096-token context and silently truncates from the
+         * front — dropping the system prompt and tool schemas. Raise it so the full
+         * instruction set survives. Higher values cost RAM on the Ollama host.
+         */
+        private const val NUM_CTX = 8192
+        private const val TEMPERATURE = 0.7
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
         /**

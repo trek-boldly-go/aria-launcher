@@ -3,6 +3,11 @@ package com.aria.launcher.aria.llm
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -122,6 +127,48 @@ class OpenAICompatibleProviderTest {
     }
 
     @Test
+    fun `assistant tool_calls serialize with stringified arguments and tool result role`() = runTest {
+        val provider = makeProvider()
+        val requestCaptor = argumentCaptor<Request>()
+        mockExecuteResponse(
+            200,
+            """{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}""",
+            requestCaptor,
+        )
+
+        val call = ToolCall(
+            id = "call_abc",
+            name = "open_app",
+            arguments = mapOf("package_name" to JsonPrimitive("com.spotify.music")),
+        )
+        val messages = listOf(
+            ChatMessage(Role.USER, "open Spotify"),
+            ChatMessage(Role.ASSISTANT, "opening", toolCalls = listOf(call)),
+            ChatMessage(Role.TOOL, "launched", toolCallId = call.id, toolName = call.name),
+        )
+        provider.complete("system", messages)
+
+        val body = json.parseToJsonElement(requestCaptor.firstValue.bodyString()).jsonObject
+        val msgs = body["messages"]!!.jsonArray.map { it.jsonObject }
+
+        val assistant = msgs.first { it["role"]?.jsonPrimitive?.contentOrNull == "assistant" }
+        val toolCall = assistant["tool_calls"]!!.jsonArray[0].jsonObject
+        assertThat(toolCall["id"]?.jsonPrimitive?.contentOrNull).isEqualTo("call_abc")
+        assertThat(toolCall["type"]?.jsonPrimitive?.contentOrNull).isEqualTo("function")
+        val fn = toolCall["function"]!!.jsonObject
+        assertThat(fn["name"]?.jsonPrimitive?.contentOrNull).isEqualTo("open_app")
+        // OpenAI requires arguments as a JSON *string*, not an object.
+        val argsRaw = fn["arguments"]!!.jsonPrimitive.contentOrNull!!
+        val argsParsed = json.parseToJsonElement(argsRaw).jsonObject
+        assertThat(argsParsed["package_name"]?.jsonPrimitive?.contentOrNull)
+            .isEqualTo("com.spotify.music")
+
+        val toolMsg = msgs.first { it["role"]?.jsonPrimitive?.contentOrNull == "tool" }
+        assertThat(toolMsg["tool_call_id"]?.jsonPrimitive?.contentOrNull).isEqualTo("call_abc")
+        assertThat(toolMsg["content"]?.jsonPrimitive?.contentOrNull).isEqualTo("launched")
+    }
+
+    @Test
     fun `request URL includes v1 chat completions path`() = runTest {
         val provider = makeProvider(baseUrl = "https://api.openai.com")
         val requestCaptor = argumentCaptor<Request>()
@@ -171,6 +218,12 @@ class OpenAICompatibleProviderTest {
         apiKey: String = "sk-test",
         modelId: String = "gpt-4",
     ) = OpenAICompatibleProvider(client, json, baseUrl, apiKey, modelId)
+
+    private fun Request.bodyString(): String {
+        val buffer = okio.Buffer()
+        body!!.writeTo(buffer)
+        return buffer.readUtf8()
+    }
 
     private fun mockExecuteResponse(
         code: Int,

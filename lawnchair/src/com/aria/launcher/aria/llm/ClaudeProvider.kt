@@ -5,10 +5,14 @@ import com.anthropic.client.AnthropicClient
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.core.JsonValue
 import com.anthropic.errors.UnauthorizedException
+import com.anthropic.models.messages.ContentBlockParam
 import com.anthropic.models.messages.Message
 import com.anthropic.models.messages.MessageCreateParams
+import com.anthropic.models.messages.TextBlockParam
 import com.anthropic.models.messages.Tool
+import com.anthropic.models.messages.ToolResultBlockParam
 import com.anthropic.models.messages.ToolUseBlock
+import com.anthropic.models.messages.ToolUseBlockParam
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.MapperFeature
@@ -157,10 +161,66 @@ class ClaudeProvider(
             .maxTokens(maxTokens.toLong())
             .system(systemPrompt)
 
-        for (msg in messages) {
+        // Coalesce consecutive TOOL results into a single user message: the Anthropic
+        // REST API only accepts "user"/"assistant" roles, and multiple tool_result
+        // blocks from one assistant turn must ride in the same user message.
+        var i = 0
+        while (i < messages.size) {
+            val msg = messages[i]
             when (msg.role) {
-                Role.ASSISTANT -> builder.addAssistantMessage(msg.content)
-                else -> builder.addUserMessage(msg.content)
+                Role.TOOL -> {
+                    val blocks = mutableListOf<ContentBlockParam>()
+                    while (i < messages.size && messages[i].role == Role.TOOL) {
+                        val toolMsg = messages[i]
+                        blocks.add(
+                            ContentBlockParam.ofToolResult(
+                                ToolResultBlockParam.builder()
+                                    .toolUseId(toolMsg.toolCallId ?: "")
+                                    .content(toolMsg.content)
+                                    .build(),
+                            ),
+                        )
+                        i++
+                    }
+                    builder.addUserMessageOfBlockParams(blocks)
+                }
+
+                Role.ASSISTANT -> {
+                    if (msg.toolCalls.isEmpty()) {
+                        builder.addAssistantMessage(msg.content)
+                    } else {
+                        val blocks = mutableListOf<ContentBlockParam>()
+                        if (msg.content.isNotBlank()) {
+                            blocks.add(
+                                ContentBlockParam.ofText(
+                                    TextBlockParam.builder().text(msg.content).build(),
+                                ),
+                            )
+                        }
+                        for (call in msg.toolCalls) {
+                            val inputBuilder = ToolUseBlockParam.Input.builder()
+                            for ((key, value) in call.arguments) {
+                                inputBuilder.putAdditionalProperty(key, JsonValue.from(jsonElementToNative(value)))
+                            }
+                            blocks.add(
+                                ContentBlockParam.ofToolUse(
+                                    ToolUseBlockParam.builder()
+                                        .id(call.id)
+                                        .name(call.name)
+                                        .input(inputBuilder.build())
+                                        .build(),
+                                ),
+                            )
+                        }
+                        builder.addAssistantMessageOfBlockParams(blocks)
+                    }
+                    i++
+                }
+
+                else -> {
+                    builder.addUserMessage(msg.content)
+                    i++
+                }
             }
         }
 

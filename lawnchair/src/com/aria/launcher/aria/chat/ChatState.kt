@@ -280,14 +280,24 @@ class ChatState(
                             _messages.value += UiMessage(Role.ASSISTANT, errorMsg)
                         }
 
-                        // Feed results back to the AI for continuation
-                        val toolResultText = toolResults.joinToString("\n") {
-                            "[Tool ${it.toolName}]: ${it.result}"
-                        }
-                        currentMessages = currentMessages + listOf(
-                            ChatMessage(Role.ASSISTANT, result.content),
-                            ChatMessage(Role.USER, toolResultText),
+                        // Feed results back to the AI for continuation using the correct
+                        // protocol: the assistant message carries its structured tool_calls,
+                        // and each result returns as its own TOOL message tied to a call id.
+                        val assistantMessage = ChatMessage(
+                            role = Role.ASSISTANT,
+                            content = result.content,
+                            toolCalls = result.toolCalls,
                         )
+                        val toolMessages = result.toolCalls.mapIndexed { index, toolCall ->
+                            val toolResult = toolResults[index]
+                            ChatMessage(
+                                role = Role.TOOL,
+                                content = toolResult.result,
+                                toolCallId = toolCall.id,
+                                toolName = toolCall.name,
+                            )
+                        }
+                        currentMessages = currentMessages + assistantMessage + toolMessages
                         round++
                     }
 

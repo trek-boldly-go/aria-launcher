@@ -211,20 +211,24 @@ class BriefEditorialEngine @Inject constructor(
                         "Heartbeat tool calls (round $round): " +
                             result.toolCalls.joinToString { it.name },
                     )
-                    val toolResultTexts = result.toolCalls.map { toolCall ->
-                        processToolCall(
+                    val toolMessages = result.toolCalls.map { toolCall ->
+                        val resultText = processToolCall(
                             toolCall,
                             toolExecutor,
                             agenticMode,
                             executedActions,
                             pendingConfirmations,
                         )
+                        ChatMessage(
+                            role = Role.TOOL,
+                            content = resultText,
+                            toolCallId = toolCall.id,
+                            toolName = toolCall.name,
+                        )
                     }
-                    val toolResultText = toolResultTexts.joinToString("\n")
-                    messages = messages + listOf(
-                        ChatMessage(Role.ASSISTANT, result.content),
-                        ChatMessage(Role.USER, toolResultText),
-                    )
+                    messages = messages +
+                        ChatMessage(Role.ASSISTANT, result.content, toolCalls = result.toolCalls) +
+                        toolMessages
                     round++
                 }
 

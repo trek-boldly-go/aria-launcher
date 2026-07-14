@@ -3,6 +3,11 @@ package com.aria.launcher.aria.llm
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -194,6 +199,56 @@ class OllamaProviderTest {
     }
 
     @Test
+    fun `request body sets num_ctx option`() = runTest {
+        val provider = OllamaProvider(client, json, "http://192.168.1.100:11434")
+        val requestCaptor = argumentCaptor<Request>()
+        mockExecuteResponse(200, SIMPLE_RESPONSE, requestCaptor)
+
+        provider.complete("system", listOf(ChatMessage(Role.USER, "hello")))
+
+        val body = json.parseToJsonElement(requestCaptor.firstValue.bodyString()).jsonObject
+        val options = body["options"]?.jsonObject
+        assertThat(options).isNotNull()
+        assertThat(options!!["num_ctx"]?.jsonPrimitive?.contentOrNull).isEqualTo("8192")
+    }
+
+    @Test
+    fun `assistant tool_calls and tool results serialize with correct roles`() = runTest {
+        val provider = OllamaProvider(client, json, "http://192.168.1.100:11434")
+        val requestCaptor = argumentCaptor<Request>()
+        mockExecuteResponse(200, SIMPLE_RESPONSE, requestCaptor)
+
+        val call = ToolCall(
+            id = "call_1",
+            name = "get_weather",
+            arguments = mapOf("location" to JsonPrimitive("NYC")),
+        )
+        val messages = listOf(
+            ChatMessage(Role.USER, "weather?"),
+            ChatMessage(Role.ASSISTANT, "checking", toolCalls = listOf(call)),
+            ChatMessage(Role.TOOL, "72F sunny", toolCallId = call.id, toolName = call.name),
+        )
+        provider.complete("system", messages)
+
+        val body = json.parseToJsonElement(requestCaptor.firstValue.bodyString()).jsonObject
+        val msgs = body["messages"]!!.jsonArray.map { it.jsonObject }
+
+        // messages[0] is the system prompt injected by the provider
+        val assistant = msgs.first { it["role"]?.jsonPrimitive?.contentOrNull == "assistant" }
+        val toolCalls = assistant["tool_calls"]!!.jsonArray
+        assertThat(toolCalls).hasSize(1)
+        val fn = toolCalls[0].jsonObject["function"]!!.jsonObject
+        assertThat(fn["name"]?.jsonPrimitive?.contentOrNull).isEqualTo("get_weather")
+        // Ollama takes arguments as an object, not a string
+        assertThat(fn["arguments"]!!.jsonObject["location"]?.jsonPrimitive?.contentOrNull)
+            .isEqualTo("NYC")
+
+        val toolMsg = msgs.first { it["role"]?.jsonPrimitive?.contentOrNull == "tool" }
+        assertThat(toolMsg["tool_name"]?.jsonPrimitive?.contentOrNull).isEqualTo("get_weather")
+        assertThat(toolMsg["content"]?.jsonPrimitive?.contentOrNull).isEqualTo("72F sunny")
+    }
+
+    @Test
     fun `completeWithTools returns text when no tool_calls in response`() = runTest {
         val provider = OllamaProvider(client, json, "http://192.168.1.100:11434")
         mockExecuteResponse(
@@ -282,6 +337,12 @@ class OllamaProviderTest {
     }
 
     // ── Helpers ──
+
+    private fun Request.bodyString(): String {
+        val buffer = okio.Buffer()
+        body!!.writeTo(buffer)
+        return buffer.readUtf8()
+    }
 
     private fun mockExecuteResponse(
         code: Int,

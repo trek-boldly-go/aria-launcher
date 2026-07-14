@@ -142,17 +142,12 @@ class GeminiProvider(
                 }
             }
 
-            // Conversation contents
+            // Conversation contents. The REST API only allows "user"/"model" roles;
+            // assistant tool calls become functionCall parts and TOOL results become
+            // functionResponse parts in a user-role turn.
             putJsonArray("contents") {
                 for (msg in messages) {
-                    add(
-                        buildJsonObject {
-                            put("role", if (msg.role == Role.ASSISTANT) "model" else "user")
-                            putJsonArray("parts") {
-                                add(buildJsonObject { put("text", msg.content) })
-                            }
-                        },
-                    )
+                    add(buildContentObject(msg))
                 }
             }
 
@@ -188,6 +183,55 @@ class GeminiProvider(
             }
         }
         return json.encodeToString(JsonObject.serializer(), jsonBody)
+    }
+
+    /** Serializes a chat message into a Gemini `contents` entry. */
+    private fun buildContentObject(msg: ChatMessage): JsonObject = when (msg.role) {
+        Role.ASSISTANT -> buildJsonObject {
+            put("role", "model")
+            putJsonArray("parts") {
+                if (msg.content.isNotBlank() || msg.toolCalls.isEmpty()) {
+                    add(buildJsonObject { put("text", msg.content) })
+                }
+                for (call in msg.toolCalls) {
+                    add(
+                        buildJsonObject {
+                            putJsonObject("functionCall") {
+                                put("name", call.name)
+                                putJsonObject("args") {
+                                    for ((key, value) in call.arguments) {
+                                        put(key, value)
+                                    }
+                                }
+                            }
+                        },
+                    )
+                }
+            }
+        }
+
+        Role.TOOL -> buildJsonObject {
+            put("role", "user")
+            putJsonArray("parts") {
+                add(
+                    buildJsonObject {
+                        putJsonObject("functionResponse") {
+                            put("name", msg.toolName ?: "")
+                            putJsonObject("response") {
+                                put("result", msg.content)
+                            }
+                        }
+                    },
+                )
+            }
+        }
+
+        else -> buildJsonObject {
+            put("role", "user")
+            putJsonArray("parts") {
+                add(buildJsonObject { put("text", msg.content) })
+            }
+        }
     }
 
     private fun buildRequest(body: String, stream: Boolean): Request = Request.Builder()
