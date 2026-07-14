@@ -217,6 +217,8 @@ class AriaHomeState @Inject constructor(
             _briefItems.value = filtered
             _contextBar.value = buildContextBar(context)
             Log.d(TAG, "Brief refreshed: ${filtered.size} items")
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            // Normal: a newer refresh superseded this one. Don't log.
         } catch (e: Exception) {
             Log.w(TAG, "Brief refresh failed", e)
         }
