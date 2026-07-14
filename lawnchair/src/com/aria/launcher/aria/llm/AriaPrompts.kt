@@ -435,7 +435,9 @@ object AriaPrompts {
      * leniently by [parseToolGroups]; any failure falls back to offering all tools.
      */
     fun toolRouterSystemPrompt(): String = """
-        You are a tool router. Read the user's message and decide which tool groups might help.
+        You are a tool router. Read the conversation — especially the latest user message,
+        resolving any follow-up like "yes, send it" against what came before — and decide
+        which tool groups might help.
         Groups:
         - communication: contacts, texting, calling, email
         - calendar: reading or creating calendar events
@@ -474,17 +476,22 @@ object AriaPrompts {
     }
 
     /**
-     * Resolves the router pre-pass into the tool set to offer. A null [reply] (router
-     * failed or gave a non-text answer) or an empty result falls back to [allTools] —
-     * the pre-Phase-4 behavior. Otherwise keeps the routed groups plus the [floorGroups].
+     * Resolves the router pre-pass into the tool set to offer. Falls back to [allTools]
+     * — the pre-Phase-4 behavior — whenever routing can't be trusted: a null [reply]
+     * (router errored or gave a non-text answer), or a reply that names no recognized
+     * group (prose, a refusal, wrong language, empty content). A small model failing to
+     * emit clean group names must not silently strand the user on the floor set. Only
+     * when the reply names at least one real group do we trim to those groups plus the
+     * always-on [floorGroups].
      */
     fun toolsForRouterReply(
         reply: String?,
         allTools: List<ToolDefinition>,
     ): List<ToolDefinition> {
         if (reply == null) return allTools
-        val groups = parseToolGroups(reply) + floorGroups
-        val filtered = filterToolsByGroups(allTools, groups)
+        val routed = parseToolGroups(reply)
+        if (routed.isEmpty()) return allTools
+        val filtered = filterToolsByGroups(allTools, routed + floorGroups)
         return filtered.ifEmpty { allTools }
     }
 

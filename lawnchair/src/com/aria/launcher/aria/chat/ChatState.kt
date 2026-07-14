@@ -241,11 +241,17 @@ class ChatState(
 
             val notifContentEnabled = ariaPreferences.getNotificationContentEnabled()
             val allTools = AriaPrompts.buildTools(capabilities, skillNames, notifContentEnabled)
-            val tools = routeTools(provider, text, allTools)
 
             val chatMessages = _messages.value.map { msg ->
                 ChatMessage(role = msg.role, content = msg.content)
             }
+
+            // Route on the recent tail (visible turns only) so follow-ups like "yes,
+            // send it" resolve against prior context rather than an isolated fragment.
+            val routerContext = chatMessages
+                .filter { it.content.isNotBlank() }
+                .takeLast(ROUTER_CONTEXT_MESSAGES)
+            val tools = routeTools(provider, routerContext, allTools)
 
             var round = 0
             var currentMessages = chatMessages
@@ -347,14 +353,16 @@ class ChatState(
 
     /**
      * Small-model tool budget: a cheap router pre-pass asks the model which tool
-     * groups the user's turn might need, then trims [allTools] to those groups (plus
-     * the always-on floor). Skipped when the set is already small. Any failure —
-     * router error, non-text reply, or an empty result — falls back to all tools,
-     * preserving the pre-Phase-4 behavior.
+     * groups the current turn might need, then trims [allTools] to those groups (plus
+     * the always-on floor). The router sees the recent conversation tail — not just the
+     * latest message — so context-dependent follow-ups ("yes, send it") route against
+     * what came before. Skipped when the set is already small. Any failure — router
+     * error, non-text reply, or a reply naming no recognized group — falls back to all
+     * tools, preserving the pre-Phase-4 behavior.
      */
     private suspend fun routeTools(
         provider: LlmProvider,
-        userMessage: String,
+        conversation: List<ChatMessage>,
         allTools: List<ToolDefinition>,
     ): List<ToolDefinition> {
         if (allTools.size <= ROUTER_TOOL_THRESHOLD) return allTools
@@ -362,7 +370,7 @@ class ChatState(
             val result = withContext(Dispatchers.IO) {
                 provider.complete(
                     systemPrompt = AriaPrompts.toolRouterSystemPrompt(),
-                    messages = listOf(ChatMessage(Role.USER, userMessage)),
+                    messages = conversation,
                     maxTokens = 64,
                 )
             }
@@ -474,6 +482,9 @@ class ChatState(
          * ~10 tools fine.
          */
         private const val ROUTER_TOOL_THRESHOLD = 10
+
+        /** How many recent visible turns to hand the router for follow-up context. */
+        private const val ROUTER_CONTEXT_MESSAGES = 4
 
         /** Tools whose results are purely internal LLM context — never shown to the user. */
         private val INTERNAL_TOOLS = setOf(

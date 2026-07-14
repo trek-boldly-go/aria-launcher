@@ -144,6 +144,16 @@ class AriaPromptsTest {
     }
 
     @Test
+    fun `toolsForRouterReply falls back to all tools when the reply names no known group`() {
+        val tools = AriaPrompts.buildTools(fullCapabilities())
+        // A small model that ignores "reply with ONLY group names" must not strand the
+        // user on the floor set — an unrecognizable reply falls back to everything.
+        assertThat(AriaPrompts.toolsForRouterReply("Sure, I can help with that!", tools))
+            .isEqualTo(tools)
+        assertThat(AriaPrompts.toolsForRouterReply("", tools)).isEqualTo(tools)
+    }
+
+    @Test
     fun `toolsForRouterReply falls back to all tools when the filtered set is empty`() {
         // Only web tools available, but the router picks an unrelated group with no floor
         // overlap → filtered set is empty → fall back to everything offered.
