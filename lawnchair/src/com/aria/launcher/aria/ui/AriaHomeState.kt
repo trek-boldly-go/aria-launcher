@@ -314,7 +314,9 @@ class AriaHomeState @Inject constructor(
      * and processes based on the action type (approve/always/dismiss).
      */
     private fun handleConfirmationAction(uri: String, action: BriefAction) {
-        val actionType = uri.removePrefix("aria://confirm/")
+        // URI shape is aria://confirm/<action>/<cardToken>; the token makes each card's
+        // URIs unique so the exact-match lookup below targets the tapped card.
+        val actionType = uri.removePrefix("aria://confirm/").substringBefore("/")
         val confirmCard = _briefItems.value.filterIsInstance<BriefItem.ConfirmationRequest>()
             .firstOrNull { card -> card.actions.any { it.intentUri == uri } }
 

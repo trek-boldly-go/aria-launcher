@@ -127,7 +127,16 @@ class ChatState(
             val pendingAction = pendingConfirmation
             if (pendingAction != null) {
                 val lowerText = text.trim().lowercase()
-                if (lowerText.startsWith("yes") || lowerText == "y" || lowerText.contains("save it") || lowerText.contains("forget it")) {
+                // Affirmative phrasing is action-specific: "save it" confirms only a
+                // rule save, "forget it" confirms only a memory deletion. Otherwise
+                // "forget it" (a user discarding a proposed rule) would be read as
+                // approval and save the rule.
+                val isAffirmative = lowerText.startsWith("yes") || lowerText == "y" ||
+                    (pendingAction is ConfirmationAction.SaveRule && lowerText.contains("save it")) ||
+                    (pendingAction is ConfirmationAction.ForgetMemory && lowerText.contains("forget it"))
+                val isNegative = lowerText.startsWith("no") || lowerText == "n" ||
+                    (pendingAction is ConfirmationAction.SaveRule && lowerText.contains("forget it"))
+                if (isAffirmative) {
                     pendingConfirmation = null
                     when (pendingAction) {
                         is ConfirmationAction.SaveRule -> {
@@ -144,7 +153,7 @@ class ChatState(
                         }
                     }
                     return
-                } else if (lowerText.startsWith("no") || lowerText == "n") {
+                } else if (isNegative) {
                     pendingConfirmation = null
                     val cancelText = when (pendingAction) {
                         is ConfirmationAction.SaveRule -> "Got it, rule discarded."

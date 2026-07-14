@@ -337,16 +337,20 @@ class BriefEditorialEngine @Inject constructor(
             )
         }
 
-        for (pending in pendingConfirmations) {
+        for ((index, pending) in pendingConfirmations.withIndex()) {
             val toolCallJson = json.encodeToString(serializeToolCall(pending.toolCall))
             val isFetchUrl = pending.toolCall.name == "fetch_url"
+            // Card-specific token so tapping Approve/Dismiss on one confirmation card
+            // targets that card. With a shared URI, the handler matched the first card
+            // whose actions contained it, so the second card's buttons hit the first.
+            val cardToken = "${index}_${pending.toolCall.id}"
             val actions = mutableListOf(
-                BriefAction(label = "Approve", intentUri = "aria://confirm/approve"),
+                BriefAction(label = "Approve", intentUri = "aria://confirm/approve/$cardToken"),
             )
             if (isFetchUrl) {
-                actions.add(BriefAction(label = "Always Allow", intentUri = "aria://confirm/always"))
+                actions.add(BriefAction(label = "Always Allow", intentUri = "aria://confirm/always/$cardToken"))
             }
-            actions.add(BriefAction(label = "Dismiss", intentUri = "aria://confirm/dismiss"))
+            actions.add(BriefAction(label = "Dismiss", intentUri = "aria://confirm/dismiss/$cardToken"))
 
             cards.add(
                 BriefItem.ConfirmationRequest(
