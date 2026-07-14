@@ -45,10 +45,13 @@ class GeminiProvider(
         return "$BASE_URL/models/$modelId:$action"
     }
 
+    // responseFormat is ignored: this native-Gemini path doesn't wire responseSchema.
+    // The editorial prompt already instructs JSON output, so behavior is unchanged.
     override suspend fun complete(
         systemPrompt: String,
         messages: List<ChatMessage>,
         maxTokens: Int,
+        responseFormat: ResponseFormat,
     ): LlmResult = withContext(Dispatchers.IO) {
         val body = buildRequestBody(systemPrompt, messages, maxTokens)
         val request = buildRequest(body, stream = false)
@@ -112,6 +115,7 @@ class GeminiProvider(
         messages: List<ChatMessage>,
         tools: List<ToolDefinition>,
         maxTokens: Int,
+        responseFormat: ResponseFormat,
     ): LlmResult = withContext(Dispatchers.IO) {
         val body = buildRequestBody(systemPrompt, messages, maxTokens, tools = tools)
         val request = buildRequest(body, stream = false)

@@ -265,6 +265,57 @@ class OllamaProviderTest {
         assertThat((result as LlmResult.Text).content).isEqualTo("I don't need any tools for this.")
     }
 
+    // ── Structured output tests ──
+
+    @Test
+    fun `responseFormat Json sets format to json string`() = runTest {
+        val provider = OllamaProvider(client, json, "http://192.168.1.100:11434")
+        val requestCaptor = argumentCaptor<Request>()
+        mockExecuteResponse(200, SIMPLE_RESPONSE, requestCaptor)
+
+        provider.complete(
+            "system",
+            listOf(ChatMessage(Role.USER, "hello")),
+            responseFormat = ResponseFormat.Json,
+        )
+
+        val body = json.parseToJsonElement(requestCaptor.firstValue.bodyString()).jsonObject
+        assertThat(body["format"]?.jsonPrimitive?.contentOrNull).isEqualTo("json")
+    }
+
+    @Test
+    fun `responseFormat Schema sets format to schema object`() = runTest {
+        val provider = OllamaProvider(client, json, "http://192.168.1.100:11434")
+        val requestCaptor = argumentCaptor<Request>()
+        mockExecuteResponse(200, SIMPLE_RESPONSE, requestCaptor)
+
+        val schema = json.parseToJsonElement(
+            """{"type":"object","properties":{"ok":{"type":"boolean"}}}""",
+        ).jsonObject
+        provider.complete(
+            "system",
+            listOf(ChatMessage(Role.USER, "hello")),
+            responseFormat = ResponseFormat.Schema(schema),
+        )
+
+        val body = json.parseToJsonElement(requestCaptor.firstValue.bodyString()).jsonObject
+        val format = body["format"]?.jsonObject
+        assertThat(format).isNotNull()
+        assertThat(format!!["type"]?.jsonPrimitive?.contentOrNull).isEqualTo("object")
+    }
+
+    @Test
+    fun `responseFormat None omits format field`() = runTest {
+        val provider = OllamaProvider(client, json, "http://192.168.1.100:11434")
+        val requestCaptor = argumentCaptor<Request>()
+        mockExecuteResponse(200, SIMPLE_RESPONSE, requestCaptor)
+
+        provider.complete("system", listOf(ChatMessage(Role.USER, "hello")))
+
+        val body = json.parseToJsonElement(requestCaptor.firstValue.bodyString()).jsonObject
+        assertThat(body.containsKey("format")).isFalse()
+    }
+
     // ── Model list tests ──
 
     @Test

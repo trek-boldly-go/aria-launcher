@@ -107,10 +107,13 @@ class LiteRtLmProvider @Inject constructor(
         return engine
     }
 
+    // responseFormat is ignored: on-device LiteRT has no constrained-decoding API.
+    // The prompt already asks for JSON, so behavior is unchanged.
     override suspend fun complete(
         systemPrompt: String,
         messages: List<ChatMessage>,
         maxTokens: Int,
+        responseFormat: ResponseFormat,
     ): LlmResult = withContext(Dispatchers.IO) {
         val eng = ensureEngine() ?: return@withContext LlmResult.Error(
             "On-device model not downloaded. Download it in ARIA settings.",
@@ -191,6 +194,7 @@ class LiteRtLmProvider @Inject constructor(
         messages: List<ChatMessage>,
         tools: List<ToolDefinition>,
         maxTokens: Int,
+        responseFormat: ResponseFormat,
     ): LlmResult {
         if (tools.isEmpty()) return complete(systemPrompt, messages, maxTokens)
         val cappedTools = tools.take(MAX_ON_DEVICE_TOOLS)

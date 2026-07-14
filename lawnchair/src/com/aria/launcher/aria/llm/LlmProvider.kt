@@ -10,6 +10,7 @@ interface LlmProvider {
         systemPrompt: String,
         messages: List<ChatMessage>,
         maxTokens: Int = 1024,
+        responseFormat: ResponseFormat = ResponseFormat.None,
     ): LlmResult
 
     fun streamComplete(
@@ -23,5 +24,6 @@ interface LlmProvider {
         messages: List<ChatMessage>,
         tools: List<ToolDefinition>,
         maxTokens: Int = 1024,
+        responseFormat: ResponseFormat = ResponseFormat.None,
     ): LlmResult
 }

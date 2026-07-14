@@ -105,10 +105,13 @@ class ClaudeProvider(
         return builder.build()
     }
 
+    // responseFormat is ignored: the Anthropic SDK has no constrained-decoding knob.
+    // The editorial prompt already instructs JSON output, so behavior is unchanged.
     override suspend fun complete(
         systemPrompt: String,
         messages: List<ChatMessage>,
         maxTokens: Int,
+        responseFormat: ResponseFormat,
     ): LlmResult = withContext(Dispatchers.IO) {
         val params = buildParams(systemPrompt, messages, maxTokens)
         executeWithRetry(params)
@@ -145,6 +148,7 @@ class ClaudeProvider(
         messages: List<ChatMessage>,
         tools: List<ToolDefinition>,
         maxTokens: Int,
+        responseFormat: ResponseFormat,
     ): LlmResult = withContext(Dispatchers.IO) {
         val params = buildParams(systemPrompt, messages, maxTokens, tools)
         executeWithRetry(params)
