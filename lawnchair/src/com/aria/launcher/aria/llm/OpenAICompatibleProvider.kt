@@ -114,10 +114,14 @@ class OpenAICompatibleProvider(
     }
 
     /**
-     * Sends one request and parses it. If the server rejects `response_format`
-     * with an HTTP 400 (some OpenAI-compatible backends don't support it), retries
-     * once without the field so a strict-JSON request degrades gracefully to the
-     * status quo instead of failing outright.
+     * Sends one request and parses it. If a request that carried a `response_format`
+     * fails for any reason, retries once without the field. OpenAI-compatible backends
+     * (llama.cpp, vLLM, LocalAI, FastAPI shims, …) reject the unknown field with a wide
+     * range of statuses and messages — 400/422/500, and bodies that may be generic or
+     * localized and need not mention the field. Since the Brief path always sends the
+     * field now, retrying on any failure keeps an endpoint that worked before this
+     * feature working (degrade to status quo) rather than silently breaking the Brief.
+     * The retry passes [ResponseFormat.None], so it never recurses a second time.
      */
     private fun executeRequest(
         systemPrompt: String,
@@ -131,11 +135,8 @@ class OpenAICompatibleProvider(
         client.newCall(buildRequest(body)).execute().use { response ->
             val responseBody = response.body?.string() ?: return LlmResult.Error("Empty response")
             if (!response.isSuccessful) {
-                if (response.code == 400 &&
-                    responseFormat !is ResponseFormat.None &&
-                    responseBody.contains("response_format")
-                ) {
-                    Log.w(TAG, "Server rejected response_format (HTTP 400); retrying without it")
+                if (responseFormat !is ResponseFormat.None) {
+                    Log.w(TAG, "Request with response_format failed (HTTP ${response.code}); retrying without it")
                     return executeRequest(systemPrompt, messages, maxTokens, tools, ResponseFormat.None, parse)
                 }
                 return LlmResult.Error("HTTP ${response.code}: $responseBody")

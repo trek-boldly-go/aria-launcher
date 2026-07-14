@@ -60,16 +60,19 @@ object LiteRtToolPrompt {
      * original, unmodified text.
      */
     fun parseReply(reply: String): Reply {
-        val candidate = extractJsonObject(reply) ?: return Reply.PlainText(reply)
-        val obj = runCatching { json.parseToJsonElement(candidate) as? JsonObject }.getOrNull()
-            ?: return Reply.PlainText(reply)
-        // Only "tool" is a tool call — the rendered protocol and contentForMessage both
-        // emit "tool". Do not accept "name"; ordinary JSON like {"name":"Alice"} is not
-        // an invocation and must round-trip as plain text.
-        val name = obj["tool"]?.stringOrNull()?.takeIf { it.isNotBlank() }
-            ?: return Reply.PlainText(reply)
-        val arguments = (obj["arguments"] as? JsonObject) ?: emptyMap()
-        return Reply.Invocation(name, arguments)
+        // Try each balanced { … } span in order. Small on-device models routinely wrap the
+        // JSON in narration that itself contains braces, so a greedy first-{ /last-} span
+        // could straddle a stray brace and fail to parse a call that is actually present.
+        for (candidate in jsonObjectCandidates(reply)) {
+            val obj = runCatching { json.parseToJsonElement(candidate) as? JsonObject }.getOrNull() ?: continue
+            // Only "tool" is a tool call — the rendered protocol and contentForMessage both
+            // emit "tool". Do not accept "name"; ordinary JSON like {"name":"Alice"} is not
+            // an invocation and must round-trip as plain text.
+            val name = obj["tool"]?.stringOrNull()?.takeIf { it.isNotBlank() } ?: continue
+            val arguments = (obj["arguments"] as? JsonObject) ?: emptyMap()
+            return Reply.Invocation(name, arguments)
+        }
+        return Reply.PlainText(reply)
     }
 
     /**
@@ -81,7 +84,12 @@ object LiteRtToolPrompt {
      */
     fun contentForMessage(message: ChatMessage): String {
         if (message.role == Role.TOOL) return renderToolResult(message)
-        val invocation = message.toolCalls.firstOrNull()?.let(::renderInvocation)
+        // Render every tool call, not just the first: parallel calls (Claude/Gemini) each
+        // get a matching TOOL result, so dropping the rest would leave the replayed history
+        // showing results for invocations the model never appears to have made.
+        val invocation = message.toolCalls
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString("\n", transform = ::renderInvocation)
         return when {
             message.content.isBlank() -> invocation ?: message.content
 
@@ -119,11 +127,49 @@ object LiteRtToolPrompt {
         return properties.keys.joinToString(", ") { key -> if (key in required) "$key*" else key }
     }
 
-    /** Extracts the first `{ … }` span so surrounding prose or code fences are ignored. */
-    private fun extractJsonObject(text: String): String? {
-        val start = text.indexOf('{')
-        val end = text.lastIndexOf('}')
-        return if (start >= 0 && end > start) text.substring(start, end + 1) else null
+    /**
+     * Yields each top-level balanced `{ … }` span in [text], left to right. Brace
+     * matching ignores braces inside string literals (and their escapes), so a `}`
+     * in a value never closes the object early. Surrounding prose and code fences
+     * fall between spans and are skipped.
+     */
+    private fun jsonObjectCandidates(text: String): Sequence<String> = sequence {
+        var i = 0
+        while (i < text.length) {
+            if (text[i] == '{') {
+                val end = matchingBrace(text, i)
+                if (end > i) {
+                    yield(text.substring(i, end + 1))
+                    i = end + 1
+                    continue
+                }
+            }
+            i++
+        }
+    }
+
+    /** Index of the `}` matching the `{` at [open], or -1 if unbalanced. String-aware. */
+    private fun matchingBrace(text: String, open: Int): Int {
+        var depth = 0
+        var inString = false
+        var escaped = false
+        for (i in open until text.length) {
+            val c = text[i]
+            if (inString) {
+                when {
+                    escaped -> escaped = false
+                    c == '\\' -> escaped = true
+                    c == '"' -> inString = false
+                }
+            } else {
+                when (c) {
+                    '"' -> inString = true
+                    '{' -> depth++
+                    '}' -> if (--depth == 0) return i
+                }
+            }
+        }
+        return -1
     }
 
     private fun collapse(text: String): String = text.replace(WHITESPACE, " ").trim()

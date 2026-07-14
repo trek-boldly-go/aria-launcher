@@ -249,7 +249,34 @@ class OpenAICompatibleProviderTest {
     }
 
     @Test
-    fun `does not retry on HTTP 400 unrelated to response_format`() = runTest {
+    fun `retries without response_format on a non-400 failure that omits the field name`() = runTest {
+        // Broad guard: backends reject the field with varied statuses and generic bodies
+        // (here 422 with no mention of response_format). The retry must still fire.
+        val provider = makeProvider()
+        val requestCaptor = argumentCaptor<Request>()
+        val mockCall = mock<Call>()
+        whenever(client.newCall(requestCaptor.capture())).thenReturn(mockCall)
+        whenever(mockCall.execute())
+            .thenReturn(buildResponse(422, """{"error":"Extra inputs are not permitted"}"""))
+            .thenReturn(
+                buildResponse(200, """{"choices":[{"message":{"content":"recovered"},"finish_reason":"stop"}]}"""),
+            )
+
+        val result = provider.complete(
+            "system",
+            listOf(ChatMessage(Role.USER, "hello")),
+            responseFormat = ResponseFormat.Json,
+        )
+
+        assertThat(result).isInstanceOf(LlmResult.Text::class.java)
+        assertThat((result as LlmResult.Text).content).isEqualTo("recovered")
+        assertThat(requestCaptor.allValues).hasSize(2)
+        val secondBody = json.parseToJsonElement(requestCaptor.secondValue.bodyString()).jsonObject
+        assertThat(secondBody.containsKey("response_format")).isFalse()
+    }
+
+    @Test
+    fun `does not retry when no responseFormat was requested`() = runTest {
         val provider = makeProvider()
         val requestCaptor = argumentCaptor<Request>()
         val mockCall = mock<Call>()
@@ -257,11 +284,7 @@ class OpenAICompatibleProviderTest {
         whenever(mockCall.execute())
             .thenReturn(buildResponse(400, """{"error":{"message":"context length exceeded"}}"""))
 
-        val result = provider.complete(
-            "system",
-            listOf(ChatMessage(Role.USER, "hello")),
-            responseFormat = ResponseFormat.Json,
-        )
+        val result = provider.complete("system", listOf(ChatMessage(Role.USER, "hello")))
 
         assertThat(result).isInstanceOf(LlmResult.Error::class.java)
         assertThat(requestCaptor.allValues).hasSize(1)
