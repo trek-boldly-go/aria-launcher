@@ -71,6 +71,11 @@ abstract class AriaDatabase : RoomDatabase() {
                 DATABASE_NAME,
             )
                 .addMigrations(MIGRATION_9_10)
+                // Versions 1–8 predate the removal of destructive fallback and never had
+                // real migrations (destructive migration covered every pre-v9 dev bump).
+                // Recreate the DB only when upgrading from those dev-era versions; v9+
+                // real-user data is preserved by the explicit migrations above.
+                .fallbackToDestructiveMigrationFrom(true, 1, 2, 3, 4, 5, 6, 7, 8)
                 .build()
                 .also { instance = it }
         }
