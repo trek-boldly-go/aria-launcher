@@ -45,8 +45,9 @@ class OllamaProvider(
         systemPrompt: String,
         messages: List<ChatMessage>,
         maxTokens: Int,
+        responseFormat: ResponseFormat,
     ): LlmResult = withContext(Dispatchers.IO) {
-        val body = buildRequestBody(systemPrompt, messages, stream = false)
+        val body = buildRequestBody(systemPrompt, messages, stream = false, responseFormat = responseFormat)
         val request = buildApiRequest("$baseUrl/api/chat", body)
         try {
             val response = client.newCall(request).execute()
@@ -142,8 +143,9 @@ class OllamaProvider(
         messages: List<ChatMessage>,
         tools: List<ToolDefinition>,
         maxTokens: Int,
+        responseFormat: ResponseFormat,
     ): LlmResult = withContext(Dispatchers.IO) {
-        val body = buildRequestBody(systemPrompt, messages, stream = false, tools = tools)
+        val body = buildRequestBody(systemPrompt, messages, stream = false, tools = tools, responseFormat = responseFormat)
         val request = buildApiRequest("$baseUrl/api/chat", body)
         try {
             val response = client.newCall(request).execute()
@@ -204,10 +206,18 @@ class OllamaProvider(
         messages: List<ChatMessage>,
         stream: Boolean,
         tools: List<ToolDefinition>? = null,
+        responseFormat: ResponseFormat = ResponseFormat.None,
     ): String {
         val jsonBody = buildJsonObject {
             put("model", modelId)
             put("stream", stream)
+            // Ollama constrained decoding: "json" forces any valid JSON; a schema object
+            // forces conformance to it (supported since Ollama 0.5).
+            when (responseFormat) {
+                is ResponseFormat.None -> {}
+                is ResponseFormat.Json -> put("format", "json")
+                is ResponseFormat.Schema -> put("format", responseFormat.schema)
+            }
             putJsonArray("messages") {
                 add(
                     buildJsonObject {

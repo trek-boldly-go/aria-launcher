@@ -20,6 +20,7 @@ import com.aria.launcher.aria.llm.EditorialPrompts
 import com.aria.launcher.aria.llm.LlmProvider
 import com.aria.launcher.aria.llm.LlmProviderManager
 import com.aria.launcher.aria.llm.LlmResult
+import com.aria.launcher.aria.llm.ResponseFormat
 import com.aria.launcher.aria.llm.Role
 import com.aria.launcher.aria.llm.ToolCall
 import com.aria.launcher.aria.ui.brief.AlertSeverity
@@ -33,10 +34,15 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 import okhttp3.OkHttpClient
 
 /**
@@ -131,11 +137,14 @@ class BriefEditorialEngine @Inject constructor(
             )
         }
 
-        // Fallback: no skills and no notification content tool, simple completion
+        // Fallback: no skills and no notification content tool, simple completion.
+        // Constrain output to the Brief JSON shape so small models can't drift into
+        // prose; providers without native support ignore this and rely on the prompt.
         val result = provider.complete(
             systemPrompt = systemPrompt,
             messages = listOf(ChatMessage(Role.USER, "Generate the Brief for this context.")),
             maxTokens = 1024,
+            responseFormat = ResponseFormat.Schema(BRIEF_SCHEMA),
         )
 
         return when (result) {
@@ -649,6 +658,70 @@ class BriefEditorialEngine @Inject constructor(
         private const val MAX_TOOL_ROUNDS_AGENTIC = 5
         private const val MIN_CALL_INTERVAL_MS = 60_000L
         private const val RATE_LIMIT_BACKOFF_MS = 120_000L
+
+        /** Card `type` values [parseBriefItem] recognizes; drives the schema enum. */
+        private val BRIEF_CARD_TYPES = listOf(
+            "alert_assessed",
+            "reminder_nudge",
+            "calendar_event",
+            "media_resume",
+            "proactive_suggestion",
+            "venue_card",
+            "live_data_card",
+            "action_report",
+        )
+
+        /**
+         * JSON Schema for the editorial response: `{"brief": [ {card}, … ]}`. Passed as
+         * [ResponseFormat.Schema] so constrained-decoding providers (Ollama, OpenAI-compat)
+         * force valid, well-typed cards instead of prose. The downstream fence-stripping
+         * and [TYPE_ALIASES] remain as a safety net for providers that ignore the schema.
+         */
+        private val BRIEF_SCHEMA: JsonObject = buildJsonObject {
+            put("type", "object")
+            putJsonObject("properties") {
+                putJsonObject("brief") {
+                    put("type", "array")
+                    put("maxItems", 5)
+                    putJsonObject("items") {
+                        put("type", "object")
+                        putJsonObject("properties") {
+                            putJsonObject("type") {
+                                put("type", "string")
+                                putJsonArray("enum") {
+                                    for (t in BRIEF_CARD_TYPES) add(t)
+                                }
+                            }
+                            putJsonObject("icon") { put("type", "string") }
+                            putJsonObject("headline") { put("type", "string") }
+                            putJsonObject("subtext") { put("type", "string") }
+                            putJsonObject("severity") {
+                                put("type", "string")
+                                putJsonArray("enum") {
+                                    add("critical")
+                                    add("warning")
+                                    add("info")
+                                }
+                            }
+                            putJsonObject("action") {
+                                put("type", "object")
+                                putJsonObject("properties") {
+                                    putJsonObject("label") { put("type", "string") }
+                                    putJsonObject("intentUri") { put("type", "string") }
+                                }
+                            }
+                        }
+                        putJsonArray("required") {
+                            add("type")
+                            add("headline")
+                        }
+                    }
+                }
+            }
+            putJsonArray("required") {
+                add("brief")
+            }
+        }
 
         private val WEATHER_ICONS = setOf(
             "cloud", "rainy", "storm", "thunderstorm", "weather", "sunny",

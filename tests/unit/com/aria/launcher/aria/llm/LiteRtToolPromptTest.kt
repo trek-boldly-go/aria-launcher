@@ -105,6 +105,28 @@ class LiteRtToolPromptTest {
     }
 
     @Test
+    fun `parseReply finds the tool call past a stray brace in narration`() {
+        // A greedy first-{ /last-} span would straddle the {x} and fail to parse.
+        val reply = LiteRtToolPrompt.parseReply(
+            """Here's an example {x}: {"tool":"open_app","arguments":{"package_name":"com.x"}}""",
+        )
+        assertThat(reply).isInstanceOf(LiteRtToolPrompt.Reply.Invocation::class.java)
+        val inv = reply as LiteRtToolPrompt.Reply.Invocation
+        assertThat(inv.name).isEqualTo("open_app")
+        assertThat(inv.arguments["package_name"]?.jsonPrimitive?.content).isEqualTo("com.x")
+    }
+
+    @Test
+    fun `parseReply ignores a brace inside a string value`() {
+        val reply = LiteRtToolPrompt.parseReply(
+            """{"tool":"search_web","arguments":{"query":"a } brace"}}""",
+        )
+        assertThat(reply).isInstanceOf(LiteRtToolPrompt.Reply.Invocation::class.java)
+        val inv = reply as LiteRtToolPrompt.Reply.Invocation
+        assertThat(inv.arguments["query"]?.jsonPrimitive?.content).isEqualTo("a } brace")
+    }
+
+    @Test
     fun `contentForMessage returns content when present`() {
         val msg = ChatMessage(Role.USER, "Hello there")
         assertThat(LiteRtToolPrompt.contentForMessage(msg)).isEqualTo("Hello there")
@@ -145,6 +167,26 @@ class LiteRtToolPromptTest {
         val reparsed = LiteRtToolPrompt.parseReply(rendered)
         assertThat(reparsed).isInstanceOf(LiteRtToolPrompt.Reply.Invocation::class.java)
         assertThat((reparsed as LiteRtToolPrompt.Reply.Invocation).name).isEqualTo("search_web")
+    }
+
+    @Test
+    fun `contentForMessage renders every parallel tool call, each recoverable`() {
+        val msg = ChatMessage(
+            role = Role.ASSISTANT,
+            content = "",
+            toolCalls = listOf(
+                ToolCall("id1", "get_weather", mapOf("location" to JsonPrimitive("NYC"))),
+                ToolCall("id2", "get_calendar", mapOf("day" to JsonPrimitive("today"))),
+            ),
+        )
+        val rendered = LiteRtToolPrompt.contentForMessage(msg)
+
+        // Both invocations survive so the replayed history isn't left showing two tool
+        // results for a single visible call.
+        val names = rendered.lines().mapNotNull { line ->
+            (LiteRtToolPrompt.parseReply(line) as? LiteRtToolPrompt.Reply.Invocation)?.name
+        }
+        assertThat(names).containsExactly("get_weather", "get_calendar").inOrder()
     }
 
     @Test

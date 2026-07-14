@@ -52,17 +52,10 @@ class OpenAICompatibleProvider(
         systemPrompt: String,
         messages: List<ChatMessage>,
         maxTokens: Int,
+        responseFormat: ResponseFormat,
     ): LlmResult = withContext(Dispatchers.IO) {
-        val body = buildRequestBody(systemPrompt, messages, maxTokens)
-        val request = buildRequest(body)
         try {
-            client.newCall(request).execute().use { response ->
-                val responseBody = response.body?.string() ?: return@withContext LlmResult.Error("Empty response")
-                if (!response.isSuccessful) {
-                    return@withContext LlmResult.Error("HTTP ${response.code}: $responseBody")
-                }
-                parseResponse(responseBody)
-            }
+            executeRequest(systemPrompt, messages, maxTokens, tools = null, responseFormat, ::parseResponse)
         } catch (e: IOException) {
             LlmResult.Error("Network error: ${e.message}", e)
         }
@@ -111,19 +104,44 @@ class OpenAICompatibleProvider(
         messages: List<ChatMessage>,
         tools: List<ToolDefinition>,
         maxTokens: Int,
+        responseFormat: ResponseFormat,
     ): LlmResult = withContext(Dispatchers.IO) {
-        val body = buildRequestBody(systemPrompt, messages, maxTokens, tools = tools)
-        val request = buildRequest(body)
         try {
-            client.newCall(request).execute().use { response ->
-                val responseBody = response.body?.string() ?: return@withContext LlmResult.Error("Empty response")
-                if (!response.isSuccessful) {
-                    return@withContext LlmResult.Error("HTTP ${response.code}: $responseBody")
-                }
-                parseResponseWithTools(responseBody)
-            }
+            executeRequest(systemPrompt, messages, maxTokens, tools, responseFormat, ::parseResponseWithTools)
         } catch (e: IOException) {
             LlmResult.Error("Network error: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Sends one request and parses it. If a request that carried a `response_format`
+     * fails for any reason, retries once without the field. OpenAI-compatible backends
+     * (llama.cpp, vLLM, LocalAI, FastAPI shims, …) reject the unknown field with a wide
+     * range of statuses and messages — 400/422/500, and bodies that may be generic or
+     * localized and need not mention the field. Since the Brief path always sends the
+     * field now, retrying on any failure keeps an endpoint that worked before this
+     * feature working (degrade to status quo) rather than silently breaking the Brief.
+     * The retry passes [ResponseFormat.None], so it never recurses a second time.
+     */
+    private fun executeRequest(
+        systemPrompt: String,
+        messages: List<ChatMessage>,
+        maxTokens: Int,
+        tools: List<ToolDefinition>?,
+        responseFormat: ResponseFormat,
+        parse: (String) -> LlmResult,
+    ): LlmResult {
+        val body = buildRequestBody(systemPrompt, messages, maxTokens, tools = tools, responseFormat = responseFormat)
+        client.newCall(buildRequest(body)).execute().use { response ->
+            val responseBody = response.body?.string() ?: return LlmResult.Error("Empty response")
+            if (!response.isSuccessful) {
+                if (responseFormat !is ResponseFormat.None) {
+                    Log.w(TAG, "Request with response_format failed (HTTP ${response.code}); retrying without it")
+                    return executeRequest(systemPrompt, messages, maxTokens, tools, ResponseFormat.None, parse)
+                }
+                return LlmResult.Error("HTTP ${response.code}: $responseBody")
+            }
+            return parse(responseBody)
         }
     }
 
@@ -133,11 +151,31 @@ class OpenAICompatibleProvider(
         maxTokens: Int,
         stream: Boolean = false,
         tools: List<ToolDefinition>? = null,
+        responseFormat: ResponseFormat = ResponseFormat.None,
     ): String {
         val jsonBody = buildJsonObject {
             put("model", modelId)
             put("max_tokens", maxTokens)
             if (stream) put("stream", true)
+
+            // Constrained decoding: json_object forces any valid JSON; json_schema
+            // forces conformance. Not all OpenAI-compatible servers support this, so
+            // executeRequest retries without it on an HTTP 400 that names the field.
+            when (responseFormat) {
+                is ResponseFormat.None -> {}
+
+                is ResponseFormat.Json -> putJsonObject("response_format") {
+                    put("type", "json_object")
+                }
+
+                is ResponseFormat.Schema -> putJsonObject("response_format") {
+                    put("type", "json_schema")
+                    putJsonObject("json_schema") {
+                        put("name", "response")
+                        put("schema", responseFormat.schema)
+                    }
+                }
+            }
 
             putJsonArray("messages") {
                 add(

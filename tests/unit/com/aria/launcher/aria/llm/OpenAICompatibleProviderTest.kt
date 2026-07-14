@@ -168,6 +168,128 @@ class OpenAICompatibleProviderTest {
         assertThat(toolMsg["content"]?.jsonPrimitive?.contentOrNull).isEqualTo("launched")
     }
 
+    // ── Structured output tests ──
+
+    @Test
+    fun `responseFormat Json sets response_format json_object`() = runTest {
+        val provider = makeProvider()
+        val requestCaptor = argumentCaptor<Request>()
+        mockExecuteResponse(
+            200,
+            """{"choices":[{"message":{"content":"{}"},"finish_reason":"stop"}]}""",
+            requestCaptor,
+        )
+
+        provider.complete(
+            "system",
+            listOf(ChatMessage(Role.USER, "hello")),
+            responseFormat = ResponseFormat.Json,
+        )
+
+        val body = json.parseToJsonElement(requestCaptor.firstValue.bodyString()).jsonObject
+        val rf = body["response_format"]!!.jsonObject
+        assertThat(rf["type"]?.jsonPrimitive?.contentOrNull).isEqualTo("json_object")
+    }
+
+    @Test
+    fun `responseFormat Schema sets response_format json_schema`() = runTest {
+        val provider = makeProvider()
+        val requestCaptor = argumentCaptor<Request>()
+        mockExecuteResponse(
+            200,
+            """{"choices":[{"message":{"content":"{}"},"finish_reason":"stop"}]}""",
+            requestCaptor,
+        )
+
+        val schema = json.parseToJsonElement(
+            """{"type":"object","properties":{"ok":{"type":"boolean"}}}""",
+        ).jsonObject
+        provider.complete(
+            "system",
+            listOf(ChatMessage(Role.USER, "hello")),
+            responseFormat = ResponseFormat.Schema(schema),
+        )
+
+        val body = json.parseToJsonElement(requestCaptor.firstValue.bodyString()).jsonObject
+        val rf = body["response_format"]!!.jsonObject
+        assertThat(rf["type"]?.jsonPrimitive?.contentOrNull).isEqualTo("json_schema")
+        val jsonSchema = rf["json_schema"]!!.jsonObject
+        assertThat(jsonSchema["schema"]!!.jsonObject["type"]?.jsonPrimitive?.contentOrNull)
+            .isEqualTo("object")
+    }
+
+    @Test
+    fun `retries without response_format on HTTP 400 naming the field`() = runTest {
+        val provider = makeProvider()
+        val requestCaptor = argumentCaptor<Request>()
+        val mockCall = mock<Call>()
+        whenever(client.newCall(requestCaptor.capture())).thenReturn(mockCall)
+        whenever(mockCall.execute())
+            .thenReturn(
+                buildResponse(400, """{"error":{"message":"Unsupported parameter: 'response_format'"}}"""),
+            )
+            .thenReturn(
+                buildResponse(200, """{"choices":[{"message":{"content":"recovered"},"finish_reason":"stop"}]}"""),
+            )
+
+        val result = provider.complete(
+            "system",
+            listOf(ChatMessage(Role.USER, "hello")),
+            responseFormat = ResponseFormat.Json,
+        )
+
+        // The retry succeeds and its body drops the response_format field.
+        assertThat(result).isInstanceOf(LlmResult.Text::class.java)
+        assertThat((result as LlmResult.Text).content).isEqualTo("recovered")
+        assertThat(requestCaptor.allValues).hasSize(2)
+        val firstBody = json.parseToJsonElement(requestCaptor.firstValue.bodyString()).jsonObject
+        val secondBody = json.parseToJsonElement(requestCaptor.secondValue.bodyString()).jsonObject
+        assertThat(firstBody.containsKey("response_format")).isTrue()
+        assertThat(secondBody.containsKey("response_format")).isFalse()
+    }
+
+    @Test
+    fun `retries without response_format on a non-400 failure that omits the field name`() = runTest {
+        // Broad guard: backends reject the field with varied statuses and generic bodies
+        // (here 422 with no mention of response_format). The retry must still fire.
+        val provider = makeProvider()
+        val requestCaptor = argumentCaptor<Request>()
+        val mockCall = mock<Call>()
+        whenever(client.newCall(requestCaptor.capture())).thenReturn(mockCall)
+        whenever(mockCall.execute())
+            .thenReturn(buildResponse(422, """{"error":"Extra inputs are not permitted"}"""))
+            .thenReturn(
+                buildResponse(200, """{"choices":[{"message":{"content":"recovered"},"finish_reason":"stop"}]}"""),
+            )
+
+        val result = provider.complete(
+            "system",
+            listOf(ChatMessage(Role.USER, "hello")),
+            responseFormat = ResponseFormat.Json,
+        )
+
+        assertThat(result).isInstanceOf(LlmResult.Text::class.java)
+        assertThat((result as LlmResult.Text).content).isEqualTo("recovered")
+        assertThat(requestCaptor.allValues).hasSize(2)
+        val secondBody = json.parseToJsonElement(requestCaptor.secondValue.bodyString()).jsonObject
+        assertThat(secondBody.containsKey("response_format")).isFalse()
+    }
+
+    @Test
+    fun `does not retry when no responseFormat was requested`() = runTest {
+        val provider = makeProvider()
+        val requestCaptor = argumentCaptor<Request>()
+        val mockCall = mock<Call>()
+        whenever(client.newCall(requestCaptor.capture())).thenReturn(mockCall)
+        whenever(mockCall.execute())
+            .thenReturn(buildResponse(400, """{"error":{"message":"context length exceeded"}}"""))
+
+        val result = provider.complete("system", listOf(ChatMessage(Role.USER, "hello")))
+
+        assertThat(result).isInstanceOf(LlmResult.Error::class.java)
+        assertThat(requestCaptor.allValues).hasSize(1)
+    }
+
     @Test
     fun `request URL includes v1 chat completions path`() = runTest {
         val provider = makeProvider(baseUrl = "https://api.openai.com")
@@ -236,13 +358,14 @@ class OpenAICompatibleProviderTest {
         } else {
             whenever(client.newCall(any())).thenReturn(mockCall)
         }
-        val response = Response.Builder()
-            .request(Request.Builder().url("https://api.openai.com/v1/chat/completions").build())
-            .protocol(Protocol.HTTP_1_1)
-            .code(code)
-            .message(if (code == 200) "OK" else "Error")
-            .body(body.toResponseBody("application/json".toMediaType()))
-            .build()
-        whenever(mockCall.execute()).thenReturn(response)
+        whenever(mockCall.execute()).thenReturn(buildResponse(code, body))
     }
+
+    private fun buildResponse(code: Int, body: String): Response = Response.Builder()
+        .request(Request.Builder().url("https://api.openai.com/v1/chat/completions").build())
+        .protocol(Protocol.HTTP_1_1)
+        .code(code)
+        .message(if (code == 200) "OK" else "Error")
+        .body(body.toResponseBody("application/json".toMediaType()))
+        .build()
 }
