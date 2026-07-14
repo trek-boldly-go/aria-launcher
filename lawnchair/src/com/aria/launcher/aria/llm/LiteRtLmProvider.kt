@@ -7,6 +7,8 @@ import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.Message
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -115,14 +117,19 @@ class LiteRtLmProvider @Inject constructor(
         )
         sessionMutex.withLock {
             try {
-                val userMessage = messages.last().content
+                val initialMessages = historyMessages(messages)
+                val userMessage = messages.lastOrNull()?.let(LiteRtToolPrompt::contentForMessage) ?: ""
                 Log.d(TAG, "complete() ── INPUT ──")
                 Log.d(TAG, "  system: ${systemPrompt.take(500)}")
                 Log.d(TAG, "  user: ${userMessage.take(500)}")
-                Log.d(TAG, "  messages: ${messages.size}, maxTokens: $maxTokens")
+                // maxTokens is advisory here: litertlm 0.9.0 exposes no per-call generation
+                // cap (SamplerConfig has only topK/topP/temperature/seed); the only limit is
+                // the engine-wide EngineConfig.maxNumTokens set at warm-up. Logged for parity.
+                Log.d(TAG, "  messages: ${messages.size} (history: ${initialMessages.size}), maxTokens: $maxTokens")
                 val startMs = System.currentTimeMillis()
                 val config = ConversationConfig(
                     systemInstruction = Contents.of(systemPrompt),
+                    initialMessages = initialMessages,
                 )
                 eng.createConversation(config).use { conv ->
                     val response = conv.sendMessage(userMessage)
@@ -146,14 +153,16 @@ class LiteRtLmProvider @Inject constructor(
     ): Flow<String> = flow {
         val eng = ensureEngine() ?: error("On-device model not downloaded")
         sessionMutex.withLock {
-            val userMessage = messages.last().content
+            val initialMessages = historyMessages(messages)
+            val userMessage = messages.lastOrNull()?.let(LiteRtToolPrompt::contentForMessage) ?: ""
             Log.d(TAG, "streamComplete() ── INPUT ──")
             Log.d(TAG, "  system: ${systemPrompt.take(500)}")
             Log.d(TAG, "  user: ${userMessage.take(500)}")
-            Log.d(TAG, "  messages: ${messages.size}, maxTokens: $maxTokens")
+            Log.d(TAG, "  messages: ${messages.size} (history: ${initialMessages.size}), maxTokens: $maxTokens")
             val startMs = System.currentTimeMillis()
             val config = ConversationConfig(
                 systemInstruction = Contents.of(systemPrompt),
+                initialMessages = initialMessages,
             )
             val fullResponse = StringBuilder()
             eng.createConversation(config).use { conv ->
@@ -170,19 +179,62 @@ class LiteRtLmProvider @Inject constructor(
         }
     }.flowOn(Dispatchers.IO)
 
+    /**
+     * On-device models have no native tool-calling, so we prompt for it: the tool
+     * catalog is appended to the system prompt and the model is asked to reply with a
+     * single JSON object when it wants to call a tool. The reply is parsed back into a
+     * [LlmResult.ToolUse]; anything else is plain text. The tool list is capped for
+     * on-device — Gemma-3n-class models cannot juggle the full ~20-tool set.
+     */
     override suspend fun completeWithTools(
         systemPrompt: String,
         messages: List<ChatMessage>,
         tools: List<ToolDefinition>,
         maxTokens: Int,
     ): LlmResult {
-        // LiteRT-LM supports @Tool annotations and OpenAPI specs for native tool use.
-        // For now, embed tool definitions in the system prompt and delegate to complete().
-        // Native tool use integration deferred to a future session.
-        return complete(systemPrompt, messages, maxTokens)
+        if (tools.isEmpty()) return complete(systemPrompt, messages, maxTokens)
+        val cappedTools = tools.take(MAX_ON_DEVICE_TOOLS)
+        val augmentedSystem = systemPrompt + "\n\n" + LiteRtToolPrompt.renderToolInstructions(cappedTools)
+        return when (val result = complete(augmentedSystem, messages, maxTokens)) {
+            is LlmResult.Text -> when (val reply = LiteRtToolPrompt.parseReply(result.content)) {
+                is LiteRtToolPrompt.Reply.Invocation -> LlmResult.ToolUse(
+                    content = "",
+                    toolCalls = listOf(ToolCall(UUID.randomUUID().toString(), reply.name, reply.arguments)),
+                )
+
+                is LiteRtToolPrompt.Reply.PlainText -> LlmResult.Text(reply.text)
+            }
+
+            else -> result
+        }
+    }
+
+    /**
+     * Builds the replayed history (all but the final turn), dropping any message that
+     * renders to blank text — an empty turn can break a model's chat template.
+     */
+    private fun historyMessages(messages: List<ChatMessage>): List<Message> = messages.dropLast(1)
+        .filter { LiteRtToolPrompt.contentForMessage(it).isNotBlank() }
+        .map(::toLiteRtMessage)
+
+    /** Maps an ARIA [ChatMessage] into a LiteRT [Message] for history replay. */
+    private fun toLiteRtMessage(msg: ChatMessage): Message {
+        val text = LiteRtToolPrompt.contentForMessage(msg)
+        return when (msg.role) {
+            // Tool results are folded into user-turn text by contentForMessage; on-device
+            // models handle a dedicated TOOL role inconsistently.
+            Role.USER, Role.TOOL -> Message.user(text)
+
+            Role.ASSISTANT -> Message.model(Contents.of(text))
+
+            Role.SYSTEM -> Message.system(text)
+        }
     }
 
     companion object {
         private const val TAG = "ARIA.LiteRtLm"
+
+        /** Small on-device models degrade sharply past ~8 tools; keep the catalog tight. */
+        private const val MAX_ON_DEVICE_TOOLS = 8
     }
 }
