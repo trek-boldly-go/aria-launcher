@@ -52,6 +52,12 @@ abstract class AriaDatabase : RoomDatabase() {
                         PRIMARY KEY(`domain`)
                     )""",
                 )
+                // v10 also introduced the UserMemoryFts (@Fts4) entity. Room validates the
+                // migrated schema against the compiled entities on first open, so the FTS
+                // virtual table must be created here or every v9 user crash-loops on upgrade.
+                db.execSQL(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS `user_memory_fts` USING FTS4(`fact` TEXT NOT NULL)",
+                )
             }
         }
 
