@@ -13,12 +13,16 @@ enum class ToolPermissionTier {
 object EditorialToolPolicy {
 
     private val TOOL_TIERS = mapOf(
+        // AUTO is reserved for data-only tools that don't launch UI. Anything that
+        // calls startActivity must be CONFIRM: the Brief runs from a background
+        // heartbeat, where auto-launching is intrusive and Android silently drops
+        // background activity starts (leaving the Brief falsely reporting "done").
         "activate_skill" to ToolPermissionTier.AUTO,
         "read_notifications" to ToolPermissionTier.AUTO,
-        "search_web" to ToolPermissionTier.AUTO,
-        "set_reminder" to ToolPermissionTier.AUTO,
-        "set_timer" to ToolPermissionTier.AUTO,
-        "get_directions" to ToolPermissionTier.AUTO,
+        "search_web" to ToolPermissionTier.CONFIRM,
+        "set_reminder" to ToolPermissionTier.CONFIRM,
+        "set_timer" to ToolPermissionTier.CONFIRM,
+        "get_directions" to ToolPermissionTier.CONFIRM,
         "compose_message" to ToolPermissionTier.CONFIRM,
         "send_email" to ToolPermissionTier.CONFIRM,
         "create_event" to ToolPermissionTier.CONFIRM,

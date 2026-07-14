@@ -52,6 +52,7 @@ fun UnifiedBriefCard(
     subtextContent: (@Composable () -> Unit)? = null,
     trailingWidget: (@Composable () -> Unit)? = null,
     primaryAction: BriefAction? = null,
+    secondaryAction: BriefAction? = null,
     dismissLabel: String? = null,
     onActionClick: (BriefAction) -> Unit = {},
     onDismiss: (() -> Unit)? = null,
@@ -138,7 +139,7 @@ fun UnifiedBriefCard(
 
         // Zone 3: Action row
         val hasDismiss = dismissLabel != null && onDismiss != null
-        if (primaryAction != null || hasDismiss) {
+        if (primaryAction != null || secondaryAction != null || hasDismiss) {
             Spacer(modifier = Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -151,6 +152,18 @@ fun UnifiedBriefCard(
                     ) {
                         Text(
                             text = dismissLabel!!,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+                if (secondaryAction != null) {
+                    TextButton(
+                        onClick = { onActionClick(secondaryAction) },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = secondaryAction.label,
                             style = MaterialTheme.typography.labelMedium,
                         )
                     }

@@ -61,8 +61,11 @@ class BriefEditorialEngine @Inject constructor(
     @AriaLlmClient private val httpClient: OkHttpClient,
     @ApplicationContext private val appContext: Context,
 ) {
-    private var lastCallTimestamp = 0L
-    private var rateLimitBackoffUntil = 0L
+    // Cooldown/backoff state on a @Singleton, read and written from WorkManager heartbeats
+    // that can overlap. @Volatile guarantees cross-thread visibility of the latest value.
+    @Volatile private var lastCallTimestamp = 0L
+
+    @Volatile private var rateLimitBackoffUntil = 0L
 
     /**
      * Generates a curated Brief via LLM editorial.
@@ -271,7 +274,11 @@ class BriefEditorialEngine @Inject constructor(
         executedActions: MutableList<ExecutedAction>,
         pendingConfirmations: MutableList<PendingConfirmation>,
     ): String {
-        if (!agenticMode) {
+        // fetch_url performs network egress and must always pass through domain-permission
+        // gating — including on the default (non-agentic) editorial path, where it was
+        // previously executed directly, leaving the allow-list inert and letting the
+        // heartbeat fetch any (SSRF-checked) URL every cycle without approval.
+        if (!agenticMode && toolCall.name != "fetch_url") {
             val result = toolExecutor.execute(toolCall)
             return "[Tool ${result.toolName}]: ${result.result}"
         }

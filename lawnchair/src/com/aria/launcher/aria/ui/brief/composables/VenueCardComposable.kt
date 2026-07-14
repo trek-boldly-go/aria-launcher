@@ -32,6 +32,7 @@ fun VenueCardComposable(
             null
         },
         primaryAction = item.actions.firstOrNull(),
+        secondaryAction = item.actions.getOrNull(1),
         onActionClick = onActionClick,
     )
 }

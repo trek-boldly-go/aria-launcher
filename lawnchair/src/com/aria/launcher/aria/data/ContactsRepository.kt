@@ -42,8 +42,17 @@ class ContactsRepository @Inject constructor(
             val selectionArgs = arrayOf("%$query%")
 
             try {
+                // Limit via the supported ContactsContract query parameter rather than
+                // appending "LIMIT n" to the sort order — the latter is undocumented and
+                // rejected by the content provider on some Android versions.
+                val limitedUri = ContactsContract.Contacts.CONTENT_URI.buildUpon()
+                    .appendQueryParameter(
+                        ContactsContract.LIMIT_PARAM_KEY,
+                        limit.coerceAtMost(MAX_LIMIT).toString(),
+                    )
+                    .build()
                 resolver.query(
-                    ContactsContract.Contacts.CONTENT_URI,
+                    limitedUri,
                     arrayOf(
                         ContactsContract.Contacts._ID,
                         ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,
@@ -52,8 +61,7 @@ class ContactsRepository @Inject constructor(
                     selection,
                     selectionArgs,
                     "${ContactsContract.Contacts.STARRED} DESC, " +
-                        "${ContactsContract.Contacts.TIMES_CONTACTED} DESC " +
-                        "LIMIT ${limit.coerceAtMost(MAX_LIMIT)}",
+                        "${ContactsContract.Contacts.TIMES_CONTACTED} DESC",
                 )?.use { cursor ->
                     val idIdx = cursor.getColumnIndexOrThrow(ContactsContract.Contacts._ID)
                     val nameIdx = cursor.getColumnIndexOrThrow(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY)

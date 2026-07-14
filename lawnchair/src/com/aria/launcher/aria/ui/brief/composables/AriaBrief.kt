@@ -238,6 +238,10 @@ private fun ConfirmationRequestCard(
 ) {
     val primary = item.actions.firstOrNull()
     val dismiss = item.actions.lastOrNull { it.label == "Dismiss" }
+    // Any action that is neither the primary nor the dismiss (e.g. "Always Allow" on
+    // fetch_url confirmations). Without a dedicated slot this button never rendered,
+    // making persistent domain grants unreachable.
+    val secondary = item.actions.firstOrNull { it != primary && it != dismiss }
     UnifiedBriefCard(
         headline = item.headline,
         subtext = item.subtext,
@@ -245,6 +249,7 @@ private fun ConfirmationRequestCard(
         overlineColor = briefOverlineColor(BriefAccent.ACTION),
         accentColor = briefAccentColor(BriefAccent.ACTION),
         primaryAction = primary,
+        secondaryAction = secondary,
         dismissLabel = dismiss?.label,
         onActionClick = onActionClick,
         onDismiss = if (dismiss != null) {
